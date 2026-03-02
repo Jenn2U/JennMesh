@@ -1,0 +1,39 @@
+[Unit]
+Description=JennSentry Monitoring Agent (JennMesh sidecar)
+Documentation=https://dev.azure.com/magnivation/JennSentry
+After=network-online.target jenn-mesh-dashboard.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jenn-mesh
+Group=jenn-mesh
+EnvironmentFile=/etc/jenn-mesh/env
+
+# Absolute paths required — Path.home() ignores HOME env var on some systems
+Environment=JENN_SENTRY_AGENT_DB_PATH=/var/lib/jenn-mesh/sentry-agent.db
+Environment=JENN_SENTRY_AGENT_PID_FILE=/var/lib/jenn-mesh/sentry-agent.pid
+Environment=JENN_SENTRY_AGENT_MONITOR_URL=http://127.0.0.1:8002/health
+
+ExecStart=/opt/jenn-mesh/current/venv/bin/jenn-sentry-agent start
+Restart=always
+RestartSec=10
+
+# Resource limits — constrained for Pi/edge nodes
+MemoryMax=128M
+CPUQuota=25%
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/jenn-mesh /var/log/jenn-mesh
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jenn-sentry-agent
+
+[Install]
+WantedBy=multi-user.target

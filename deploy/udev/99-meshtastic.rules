@@ -1,0 +1,19 @@
+# Udev rules for Meshtastic LoRa radios — JennMesh
+# Installed to: /etc/udev/rules.d/99-meshtastic.rules
+# Creates stable /dev/meshtastic* symlinks for USB-connected radios
+# Adds dialout group permissions for the jenn-mesh service user
+
+# CP2102 — Silicon Labs (most common Meshtastic USB chip)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", \
+    SYMLINK+="meshtastic%n", GROUP="dialout", MODE="0660", \
+    TAG+="systemd", ENV{SYSTEMD_WANTS}="jenn-mesh-agent.service"
+
+# CH9102 / CH340 — WCH (common on budget boards)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", \
+    SYMLINK+="meshtastic%n", GROUP="dialout", MODE="0660", \
+    TAG+="systemd", ENV{SYSTEMD_WANTS}="jenn-mesh-agent.service"
+
+# FTDI FT232 (some Meshtastic development boards)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6015", \
+    SYMLINK+="meshtastic%n", GROUP="dialout", MODE="0660", \
+    TAG+="systemd", ENV{SYSTEMD_WANTS}="jenn-mesh-agent.service"

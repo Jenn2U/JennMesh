@@ -61,6 +61,13 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/cli.py` | CLI entry point with subcommands |
 | `src/jenn_mesh/db.py` | SQLite WAL schema (devices, positions, alerts, configs) |
 | `configs/*.yaml` | Golden Meshtastic config templates per device role |
+| `deploy/systemd/*.service` | 4 systemd unit files (broker, dashboard, agent, sentry) |
+| `deploy/scripts/install.sh` | 9-phase idempotent installer for ARM64 Linux |
+| `deploy/scripts/package-release.sh` | Build release tarball for deployment |
+| `deploy/scripts/health-check.sh` | Post-deploy health verification |
+| `deploy/config/env.template` | Environment variables template |
+| `deploy/config/mosquitto-prod.conf` | Production Mosquitto configuration |
+| `deploy/udev/99-meshtastic.rules` | Stable /dev/meshtastic* USB symlinks |
 
 ## Golden Config Templates
 
@@ -141,9 +148,42 @@ Never leave uncommitted work. Orphaned changes between sessions cause lost work.
 | 8002 | JennMesh Dashboard | Cloud + local |
 | 1884 | Dedicated Mosquitto (mesh) | Edge + cloud |
 
+## Physical Deployment (Mesh Appliance)
+
+JennMesh deploys as a bare-metal "mesh appliance" on ARM64 Linux (Pi 5 / Orange Pi) for USB/Bluetooth radio administration.
+
+### Directory Layout
+```
+/opt/jenn-mesh/current -> <version>/   # Active install (symlink)
+/etc/jenn-mesh/                        # Configuration (env, mosquitto.conf)
+/var/lib/jenn-mesh/                    # Data (mesh.db, mosquitto, backups)
+/var/log/jenn-mesh/                    # Service logs
+```
+
+### 4 Systemd Services
+| Service | Description |
+|---------|-------------|
+| `jenn-mesh-broker` | Mosquitto MQTT on port 1884 |
+| `jenn-mesh-dashboard` | FastAPI + uvicorn on port 8002 |
+| `jenn-mesh-agent` | Radio bridge (serial/USB) → MQTT forwarder |
+| `jenn-sentry-agent` | Health monitoring sidecar |
+
+### Deploy Commands
+```
+deploy/scripts/package-release.sh      # Build release tarball
+deploy/scripts/install.sh              # 9-phase idempotent installer
+deploy/scripts/health-check.sh         # Post-deploy verification
+deploy/scripts/backup-mesh-db.sh       # SQLite nightly backup (cron)
+```
+
+### Deploy Pipeline
+- `.azure-pipelines/templates/deploy-mesh-server.yml` — SSH deploy template
+- `.azure-pipelines/deploy-meshbox-01.yml` — Per-node deploy trigger
+
 ## Infrastructure
 
-- **Azure Container App**: `jennmesh-{env}` (dev/staging/prod)
+- **Physical server**: ARM64 Linux mesh appliance (LAN-only access)
+- **Azure Container App**: `jennmesh-{env}` (dev/staging/prod) — cloud option
 - **Front Door**: `mesh.jenn2u.ai` → Container App origin
 - **Key Vault**: Fleet admin PKC private key in `kv-magnivation-claude`
-- **MQTT Broker**: Dedicated Mosquitto (Docker on NAS or Container App)
+- **MQTT Broker**: Dedicated Mosquitto (physical server or Docker)

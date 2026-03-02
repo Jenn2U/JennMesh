@@ -1,0 +1,126 @@
+# deploy-mesh-server.yml — SSH deployment template for JennMesh appliance
+#
+# Called by per-node deploy pipelines. Handles:
+#   1. Download release artifact (tarball)
+#   2. SCP tarball + install script to target server
+#   3. Run install.sh on target
+#   4. Run health-check.sh to verify
+#
+# Modeled after JennEdge deploy-ssh.yml
+
+parameters:
+  - name: nodeName
+    type: string
+    displayName: 'Node name (e.g., meshbox-01)'
+  - name: sshServiceConnection
+    type: string
+    displayName: 'Azure DevOps SSH service connection name'
+  - name: targetHost
+    type: string
+    displayName: 'Target server hostname or IP'
+  - name: targetPort
+    type: string
+    default: '22'
+  - name: lanSubnet
+    type: string
+    default: ''
+    displayName: 'LAN subnet for firewall rules (e.g., 10.10.50.0/24)'
+  - name: healthCheckRetries
+    type: number
+    default: 5
+
+steps:
+  # Step 1: Extract version from VERSION file
+  - checkout: self
+    fetchDepth: 1
+    displayName: 'Checkout (version only)'
+
+  - script: |
+      VERSION=$(cat VERSION | tr -d '[:space:]')
+      echo "Deploying JennMesh v${VERSION} to ${{ parameters.nodeName }}"
+      echo "##vso[task.setvariable variable=meshVersion]${VERSION}"
+    displayName: 'Extract version'
+
+  # Step 2: Download release artifact
+  - task: DownloadPipelineArtifact@2
+    inputs:
+      buildType: 'current'
+      artifactName: 'jenn-mesh-release'
+      targetPath: '$(Pipeline.Workspace)/release'
+    displayName: 'Download release artifact'
+
+  # Step 3: SCP tarball to target server
+  - task: CopyFilesOverSSH@0
+    inputs:
+      sshEndpoint: '${{ parameters.sshServiceConnection }}'
+      sourceFolder: '$(Pipeline.Workspace)/release'
+      contents: 'jenn-mesh-*.tar.gz'
+      targetFolder: '/tmp/jenn-mesh-deploy'
+      cleanTargetFolder: true
+    displayName: 'SCP tarball to ${{ parameters.nodeName }}'
+
+  # Step 4: SCP install script (in case tarball extraction fails)
+  - task: CopyFilesOverSSH@0
+    inputs:
+      sshEndpoint: '${{ parameters.sshServiceConnection }}'
+      sourceFolder: '$(Build.SourcesDirectory)/deploy/scripts'
+      contents: 'install.sh'
+      targetFolder: '/tmp/jenn-mesh-deploy'
+    displayName: 'SCP install script'
+
+  # Step 5: Run install on target
+  - task: SSH@0
+    inputs:
+      sshEndpoint: '${{ parameters.sshServiceConnection }}'
+      runOptions: 'inline'
+      inline: |
+        set -e
+        VERSION="$(meshVersion)"
+        TARBALL="/tmp/jenn-mesh-deploy/jenn-mesh-${VERSION}-arm64.tar.gz"
+        SUBNET_ARG=""
+        if [ -n "${{ parameters.lanSubnet }}" ]; then
+          SUBNET_ARG="--subnet ${{ parameters.lanSubnet }}"
+        fi
+
+        echo "Installing JennMesh v${VERSION} on $(hostname)..."
+        sudo bash /tmp/jenn-mesh-deploy/install.sh \
+          --version "${VERSION}" \
+          --tarball "${TARBALL}" \
+          ${SUBNET_ARG}
+    displayName: 'Install JennMesh on ${{ parameters.nodeName }}'
+
+  # Step 6: Health check with retries
+  - task: SSH@0
+    inputs:
+      sshEndpoint: '${{ parameters.sshServiceConnection }}'
+      runOptions: 'inline'
+      inline: |
+        set -e
+        RETRIES=${{ parameters.healthCheckRetries }}
+        HEALTH_SCRIPT="/opt/jenn-mesh/current/deploy/scripts/health-check.sh"
+
+        for i in $(seq 1 $RETRIES); do
+          echo "Health check attempt $i/$RETRIES..."
+          if sudo bash "$HEALTH_SCRIPT"; then
+            echo "Health check passed!"
+            exit 0
+          fi
+          if [ "$i" -lt "$RETRIES" ]; then
+            echo "Retrying in 10 seconds..."
+            sleep 10
+          fi
+        done
+
+        echo "Health check failed after $RETRIES attempts"
+        exit 1
+    displayName: 'Health check ${{ parameters.nodeName }}'
+
+  # Step 7: Cleanup
+  - task: SSH@0
+    inputs:
+      sshEndpoint: '${{ parameters.sshServiceConnection }}'
+      runOptions: 'inline'
+      inline: |
+        rm -rf /tmp/jenn-mesh-deploy
+    condition: always()
+    displayName: 'Cleanup deploy artifacts'

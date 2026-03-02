@@ -1,0 +1,49 @@
+# deploy-meshbox-01.yml — Deploy JennMesh to meshbox-01
+#
+# Manually triggered pipeline that deploys the latest release
+# to the primary mesh appliance server.
+#
+# Prerequisites:
+#   1. SSH service connection "meshbox-01-ssh" configured in Azure DevOps
+#   2. Release artifact from the main CI pipeline
+#   3. Target server accessible on the LAN
+
+trigger: none  # Manual trigger only
+
+pr: none
+
+# Consume release artifact from CI pipeline
+resources:
+  pipelines:
+    - pipeline: JennMeshCI
+      source: 'JennMesh CI'
+      trigger:
+        branches:
+          include:
+            - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  targetHost: '10.10.50.50'  # Update with actual meshbox-01 IP
+  sshConnection: 'meshbox-01-ssh'
+  lanSubnet: '10.10.50.0/24'
+
+stages:
+  - stage: Deploy
+    displayName: 'Deploy to meshbox-01'
+    jobs:
+      - deployment: DeployMeshbox01
+        displayName: 'Deploy JennMesh'
+        environment: 'jennmesh-meshbox-01'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: templates/deploy-mesh-server.yml
+                  parameters:
+                    nodeName: 'meshbox-01'
+                    sshServiceConnection: $(sshConnection)
+                    targetHost: $(targetHost)
+                    lanSubnet: $(lanSubnet)

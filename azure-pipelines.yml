@@ -1,6 +1,6 @@
 # JennMesh CI/CD Pipeline
 # Triggers on main branch and PRs
-# Stages: Lint → Test → Build → Deploy
+# Stages: Lint → Test → Build → Release → Deploy
 
 trigger:
   branches:
@@ -102,10 +102,32 @@ stages:
               docker build -t jennmesh:$(Build.BuildId) -f infra/Dockerfile .
             displayName: "Build Docker image"
 
+  # ── Release Stage ─────────────────────────────────────────────
+  - stage: Release
+    displayName: "Package Release Tarball"
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: ReleaseJob
+        displayName: "Build ARM64 release tarball"
+        steps:
+          - checkout: self
+
+          - script: |
+              chmod +x deploy/scripts/package-release.sh
+              ./deploy/scripts/package-release.sh
+            displayName: "Package release tarball"
+
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: "dist"
+              artifact: "jenn-mesh-release"
+            displayName: "Publish release artifact"
+
   # ── Deploy Stage ──────────────────────────────────────────────
   - stage: Deploy_Dev
     displayName: "Deploy to Dev"
-    dependsOn: Build
+    dependsOn: Release
     condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
     jobs:
       - deployment: DeployDev

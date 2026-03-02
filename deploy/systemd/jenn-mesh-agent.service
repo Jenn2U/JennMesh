@@ -1,0 +1,45 @@
+[Unit]
+Description=JennMesh Agent Daemon (Radio Bridge)
+Documentation=https://dev.azure.com/magnivation/JennMesh
+After=network-online.target jenn-mesh-broker.service
+Wants=network-online.target
+Requires=jenn-mesh-broker.service
+
+[Service]
+Type=simple
+User=jenn-mesh
+Group=jenn-mesh
+SupplementaryGroups=dialout
+EnvironmentFile=/etc/jenn-mesh/env
+ExecStart=/opt/jenn-mesh/current/venv/bin/jenn-mesh-agent \
+    --port auto \
+    --mqtt-broker 127.0.0.1 \
+    --mqtt-port 1884 \
+    --dashboard-url http://127.0.0.1:8002
+WorkingDirectory=/opt/jenn-mesh/current
+Restart=on-failure
+RestartSec=10
+
+# Resource limits — agent is lightweight
+MemoryMax=128M
+CPUQuota=25%
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/jenn-mesh /var/log/jenn-mesh
+PrivateTmp=true
+
+# USB device access — requires dialout group + udev rules
+# Device paths are accessed via /dev/meshtastic* symlinks
+DeviceAllow=/dev/ttyUSB* rw
+DeviceAllow=/dev/ttyACM* rw
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jenn-mesh-agent
+
+[Install]
+WantedBy=multi-user.target

@@ -280,6 +280,24 @@ Dedicated dashboard page for hands-on single-radio configuration and golden temp
   - `POST /api/v1/config/push` — bulk push endpoint
 **Safety**: diff preview before any apply/push, confirmation dialogs, audit trail in provisioning_log.
 
+### MESH-067: Physical Deployment — Mesh Appliance on ARM64 Linux
+**Priority**: P1 | **Effort**: XXL | **Status**: Done
+Deploy JennMesh as an all-in-one "mesh appliance" on ARM64 Linux (Pi 5 / Orange Pi)
+for physical USB/Bluetooth radio administration. Bare-metal + systemd (not Docker).
+**Components**:
+  - 4 systemd services: broker, dashboard, agent, sentry sidecar
+  - 9-phase idempotent install script (follows JennEdge pattern)
+  - Udev rules for stable /dev/meshtastic* USB symlinks (CP2102, CH9102, FTDI)
+  - Mosquitto production config (auth, persistence, LAN-only)
+  - Package release script for ARM64 tarballs
+  - SSH-based deploy pipeline (Azure DevOps → physical server)
+  - SQLite nightly backup via cron (14-day retention)
+  - UFW firewall for LAN-only access (ports 8002, 1884)
+  - Health check script (services, HTTP, MQTT, USB, DB)
+  - Operator deployment guide (deploy/README.md)
+**Directory layout**: `/opt/jenn-mesh/current` → versioned install, `/etc/jenn-mesh/` config,
+  `/var/lib/jenn-mesh/` data, `/var/log/jenn-mesh/` logs.
+
 ---
 
 ## ═══════════════════════════════════════════════════
@@ -754,9 +772,12 @@ instead of sending all raw data to one gateway.
 | MESH-021 | Firmware Compatibility Matrix | S |
 | MESH-022 | Radio Health Scoring | M |
 | MESH-066 | Radio Workbench — Single-Radio Config Builder | XL |
+| MESH-067 | Physical Deployment — Mesh Appliance on ARM64 Linux | XXL |
 
 **MESH-016 delivered**: Directed edge storage (topology_edges table), schema v2 migration, TopologyManager with Tarjan's articulation point algorithm, connected component analysis, MQTT NEIGHBORINFO handler, 5 API endpoints, 45 new tests (175 total).
 
 **Sprint 3 delivered (MESH-020 + MESH-021 + MESH-022)**: Schema v3 migration (telemetry_history, device_baselines, firmware_compat tables). BaselineManager with rolling 7-day stats, deviation detection (2σ threshold), pure Python statistics. FirmwareTracker with compatibility matrix, safe-to-flash checks, fleet upgrade scanning. HealthScorer with 5 weighted factors (uptime 30%, signal 25%, battery 20%, config 15%, firmware 10%), composite 0-100 scores, fleet health summary. 12 new API endpoints. 73 new tests (248 total).
 
 **MESH-066 delivered (Radio Workbench)**: WorkbenchManager singleton session (connect/disconnect/read/diff/apply/save-as-template) using meshtastic Python API for local radios. BulkPushManager with background-thread sequential push via RemoteAdmin CLI, cancellation, auto-cleanup. 9 new API endpoints (7 workbench + 2 bulk push), all async-bridged with `asyncio.to_thread()`. Thread-safe with `threading.Lock`. 48 new tests (296 total). Fixed operator-precedence bug in configs_dir handling that leaked test files.
+
+**MESH-067 delivered (Physical Deployment)**: Full bare-metal deployment infrastructure for ARM64 Linux mesh appliances. 4 systemd services (broker, dashboard, agent, sentry sidecar). 9-phase idempotent install script following JennEdge's proven pattern. Udev rules for Meshtastic USB devices (CP2102, CH9102, FTDI) with auto-start. Mosquitto production config with password auth. Package release script, SSH deploy pipeline, health check, SQLite nightly backup (14-day retention), UFW firewall. 14 new deploy files. Operator guide in deploy/README.md.

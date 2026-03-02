@@ -1,0 +1,32 @@
+[Unit]
+Description=JennMesh MQTT Broker (Mosquitto)
+Documentation=https://dev.azure.com/magnivation/JennMesh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jenn-mesh
+Group=jenn-mesh
+ExecStart=/usr/sbin/mosquitto -c /etc/jenn-mesh/mosquitto.conf
+Restart=on-failure
+RestartSec=5
+
+# Resource limits — Mosquitto is lightweight
+MemoryMax=64M
+CPUQuota=15%
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/jenn-mesh/mosquitto /var/log/jenn-mesh
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jenn-mesh-broker
+
+[Install]
+WantedBy=multi-user.target
