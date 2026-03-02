@@ -1,0 +1,168 @@
+# Security Alert → Azure DevOps Work Item
+#
+# Automatically creates Bug work items in Azure DevOps when GitHub security
+# tools (Dependabot, CodeQL, Secret Scanning) detect issues. This ensures
+# all security findings are tracked as actionable work items.
+#
+# Required secrets:
+#   AZURE_DEVOPS_PAT — Personal Access Token with Work Items (Read & Write) scope
+#
+# The ADO project name is derived from the GitHub repository name, which
+# matches 1:1 across the JENN ecosystem (Jenn, JennEdge, JennDock, iJENN2u,
+# JennTelemetry, JennSentry).
+
+name: Security Alert → ADO Work Item
+
+on:
+  dependabot_alert:
+    types: [created, reopened, reintroduced]
+  code_scanning_alert:
+    types: [created, reopened, appeared_in_branch]
+  secret_scanning_alert:
+    types: [created, reopened]
+
+permissions:
+  security-events: read
+  contents: read
+
+jobs:
+  create-ado-work-item:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create ADO Bug work item for security alert
+        uses: actions/github-script@v7
+        env:
+          ADO_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
+          ADO_ORG: magnivation
+        with:
+          script: |
+            const event = context.eventName;
+            const payload = context.payload;
+            const repo = context.repo.repo;
+            const adoPat = process.env.ADO_PAT;
+            const adoOrg = process.env.ADO_ORG;
+
+            if (!adoPat) {
+              core.setFailed('AZURE_DEVOPS_PAT secret is not set. Add a PAT with Work Items (Read & Write) scope.');
+              return;
+            }
+
+            // --- Extract alert details based on event type ---
+            let alertType, title, description, severity, alertNumber, alertUrl, packageName;
+
+            if (event === 'dependabot_alert') {
+              const alert = payload.alert;
+              alertType = 'Dependency Vulnerability';
+              alertNumber = alert.number;
+              severity = alert.security_advisory?.severity || 'medium';
+              packageName = alert.security_vulnerability?.package?.name || 'unknown';
+              title = `[Security] Dependency: ${packageName} — ${(alert.security_advisory?.summary || '').substring(0, 80)}`;
+              alertUrl = alert.html_url || '';
+              description = [
+                `<h3>Dependency Vulnerability in ${repo}</h3>`,
+                `<p><b>Package:</b> ${packageName}</p>`,
+                `<p><b>Severity:</b> ${severity}</p>`,
+                `<p><b>Advisory:</b> ${alert.security_advisory?.summary || 'N/A'}</p>`,
+                `<p><b>Vulnerable range:</b> ${alert.security_vulnerability?.vulnerable_version_range || 'N/A'}</p>`,
+                `<p><b>Patched version:</b> ${alert.security_vulnerability?.first_patched_version?.identifier || 'No patch available'}</p>`,
+                `<p><b>GitHub Alert:</b> <a href="${alertUrl}">#${alertNumber}</a></p>`,
+                `<p><b>Source:</b> GitHub Dependabot</p>`,
+                `<hr/><p><i>Auto-created by JENN Ecosystem security workflow</i></p>`,
+              ].join('\n');
+
+            } else if (event === 'code_scanning_alert') {
+              const alert = payload.alert;
+              alertType = 'Code Scanning';
+              alertNumber = alert.number;
+              const ruleSeverity = alert.rule?.severity || 'warning';
+              // Map CodeQL severity to standard levels
+              const severityMap = { error: 'high', warning: 'medium', note: 'low' };
+              severity = severityMap[ruleSeverity] || 'medium';
+              title = `[Security] CodeQL: ${(alert.rule?.description || alert.rule?.id || '').substring(0, 80)}`;
+              alertUrl = alert.html_url || '';
+              const instance = alert.most_recent_instance;
+              description = [
+                `<h3>Code Scanning Alert in ${repo}</h3>`,
+                `<p><b>Rule:</b> ${alert.rule?.id || 'N/A'} — ${alert.rule?.description || 'N/A'}</p>`,
+                `<p><b>Severity:</b> ${severity} (CodeQL: ${ruleSeverity})</p>`,
+                `<p><b>File:</b> ${instance?.location?.path || 'N/A'}:${instance?.location?.start_line || ''}</p>`,
+                `<p><b>Message:</b> ${instance?.message?.text || 'N/A'}</p>`,
+                `<p><b>GitHub Alert:</b> <a href="${alertUrl}">#${alertNumber}</a></p>`,
+                `<p><b>Source:</b> GitHub CodeQL</p>`,
+                `<hr/><p><i>Auto-created by JENN Ecosystem security workflow</i></p>`,
+              ].join('\n');
+
+            } else if (event === 'secret_scanning_alert') {
+              const alert = payload.alert;
+              alertType = 'Secret Detected';
+              alertNumber = alert.number;
+              severity = 'critical';  // Exposed secrets are always critical
+              title = `[Security] Secret: ${(alert.secret_type_display_name || alert.secret_type || '').substring(0, 80)} detected`;
+              alertUrl = alert.html_url || '';
+              description = [
+                `<h3>Secret Detected in ${repo}</h3>`,
+                `<p><b>Secret type:</b> ${alert.secret_type_display_name || alert.secret_type || 'N/A'}</p>`,
+                `<p><b>Severity:</b> CRITICAL — rotate this secret immediately</p>`,
+                `<p><b>GitHub Alert:</b> <a href="${alertUrl}">#${alertNumber}</a></p>`,
+                `<p><b>Source:</b> GitHub Secret Scanning</p>`,
+                `<p><b>Action required:</b> Rotate the exposed secret and update all systems using it.</p>`,
+                `<hr/><p><i>Auto-created by JENN Ecosystem security workflow</i></p>`,
+              ].join('\n');
+
+            } else {
+              core.info(`Unhandled event type: ${event}`);
+              return;
+            }
+
+            // --- Map severity to ADO priority (1=highest, 4=lowest) ---
+            const priorityMap = { critical: 1, high: 2, medium: 3, low: 4 };
+            const priority = priorityMap[severity] || 3;
+
+            // --- Create ADO work item via REST API ---
+            const adoProject = repo;  // GitHub repo name matches ADO project name
+            const adoUrl = `https://dev.azure.com/${adoOrg}/${encodeURIComponent(adoProject)}/_apis/wit/workitems/$Bug?api-version=7.1`;
+            const tags = `security;github-security-alert;${alertType.toLowerCase().replace(/\s+/g, '-')};gh-alert-${alertNumber}`;
+
+            const body = [
+              { op: 'add', path: '/fields/System.Title', value: title },
+              { op: 'add', path: '/fields/System.Description', value: description },
+              { op: 'add', path: '/fields/Microsoft.VSTS.Common.Priority', value: priority },
+              { op: 'add', path: '/fields/System.Tags', value: tags },
+            ];
+
+            const auth = Buffer.from(`:${adoPat}`).toString('base64');
+            const response = await fetch(adoUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json-patch+json',
+                'Authorization': `Basic ${auth}`,
+              },
+              body: JSON.stringify(body),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              core.setFailed(`ADO API error (${response.status}): ${errorText}`);
+              return;
+            }
+
+            const workItem = await response.json();
+            const wiId = workItem.id;
+            const wiUrl = workItem._links?.html?.href || `https://dev.azure.com/${adoOrg}/${adoProject}/_workitems/edit/${wiId}`;
+
+            core.info(`Created ADO Bug #${wiId}: ${title}`);
+            core.info(`Work item URL: ${wiUrl}`);
+            core.info(`Severity: ${severity} → Priority: ${priority}`);
+
+            // --- Post summary to GitHub Actions ---
+            await core.summary
+              .addHeading('Security Alert → ADO Work Item')
+              .addTable([
+                [{data: 'Field', header: true}, {data: 'Value', header: true}],
+                ['Alert Type', alertType],
+                ['Severity', severity],
+                ['ADO Work Item', `<a href="${wiUrl}">#${wiId}</a>`],
+                ['ADO Project', adoProject],
+                ['Priority', `P${priority - 1}`],
+              ])
+              .write();
