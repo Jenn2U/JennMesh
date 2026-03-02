@@ -105,9 +105,7 @@ class SecuritySetup:
             description=name,
         )
 
-    def inject_admin_key_into_config(
-        self, config_yaml: str, admin_key_b64: str
-    ) -> str:
+    def inject_admin_key_into_config(self, config_yaml: str, admin_key_b64: str) -> str:
         """Insert an admin public key into a golden config YAML string.
 
         Replaces the placeholder `admin_key: []` with the actual key.

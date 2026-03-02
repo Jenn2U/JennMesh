@@ -54,9 +54,7 @@ class PositionTracker:
         # 1 degree latitude ≈ 111km, longitude varies with latitude
         radius_deg = radius_meters / 111_000
 
-        candidates = self.db.get_positions_in_radius(
-            latitude, longitude, radius_deg
-        )
+        candidates = self.db.get_positions_in_radius(latitude, longitude, radius_deg)
 
         center = GPSPosition(
             node_id="query_center",

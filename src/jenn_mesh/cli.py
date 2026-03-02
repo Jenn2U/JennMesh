@@ -236,9 +236,7 @@ def main() -> None:
         finder = LostNodeFinder(db)
         console = Console()
 
-        result = finder.locate(
-            LostNodeQuery(target_node_id=node_id, search_radius_meters=radius)
-        )
+        result = finder.locate(LostNodeQuery(target_node_id=node_id, search_radius_meters=radius))
 
         if not result.is_found:
             console.print(f"[red]No position data for {node_id}[/red]")

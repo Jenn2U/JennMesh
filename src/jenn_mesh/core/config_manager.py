@@ -10,7 +10,6 @@ import yaml
 from jenn_mesh.db import MeshDatabase
 from jenn_mesh.models.device import ConfigHash, DeviceRole
 
-
 CONFIGS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "configs"
 
 

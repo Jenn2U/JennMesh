@@ -59,9 +59,7 @@ class RadioBridge:
             import meshtastic.tcp_interface
 
             if self.port:
-                self._interface = meshtastic.serial_interface.SerialInterface(
-                    self.port
-                )
+                self._interface = meshtastic.serial_interface.SerialInterface(self.port)
             elif self.host:
                 host_parts = self.host.split(":")
                 hostname = host_parts[0]

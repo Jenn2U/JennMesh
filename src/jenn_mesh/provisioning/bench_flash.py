@@ -81,9 +81,7 @@ class BenchProvisioner:
             cmd.extend(["--port", port])
 
         try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 return result.stdout
             logger.error("Failed to export config: %s", result.stderr)
@@ -98,9 +96,7 @@ class BenchProvisioner:
             cmd.extend(["--port", port])
 
         try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=15
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
             if result.returncode == 0:
                 info: dict = {}
                 for line in result.stdout.splitlines():
@@ -161,9 +157,7 @@ class BenchProvisioner:
         # 4. Write temp config and apply
         import tempfile
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tmp:
             tmp.write(template_yaml)
             tmp_path = tmp.name
 
@@ -172,9 +166,7 @@ class BenchProvisioner:
             if port != "auto":
                 cmd.extend(["--port", port])
 
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=60
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
             if result.returncode != 0:
                 return ProvisioningResult(
@@ -182,9 +174,7 @@ class BenchProvisioner:
                     message=f"Failed to apply config: {result.stderr}",
                 )
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-            return ProvisioningResult(
-                success=False, message=f"Cannot apply config: {e}"
-            )
+            return ProvisioningResult(success=False, message=f"Cannot apply config: {e}")
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 

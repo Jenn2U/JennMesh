@@ -19,6 +19,7 @@ class AlertType(str, Enum):
     FIRMWARE_OUTDATED = "firmware_outdated"
     POSITION_STALE = "position_stale"
     MQTT_DISCONNECTED = "mqtt_disconnected"
+    BASELINE_DEVIATION = "baseline_deviation"
 
 
 class AlertSeverity(str, Enum):
@@ -54,6 +55,7 @@ ALERT_SEVERITY_MAP: dict[AlertType, AlertSeverity] = {
     AlertType.FIRMWARE_OUTDATED: AlertSeverity.INFO,
     AlertType.POSITION_STALE: AlertSeverity.INFO,
     AlertType.MQTT_DISCONNECTED: AlertSeverity.CRITICAL,
+    AlertType.BASELINE_DEVIATION: AlertSeverity.WARNING,
 }
 
 

@@ -2,7 +2,7 @@
 
 *Part of the JENN Intelligent Ecosystem — Centralized Meshtastic LoRa radio fleet management.*
 
-**Last Updated**: 2026-03-01 (backlog audit)
+**Last Updated**: 2026-03-02 (Sprint 3 complete)
 **Current Version**: 0.1.0
 
 ---
@@ -188,7 +188,7 @@ Dashboard: zone editor overlay on Fleet Map.
 API: `POST /api/v1/geofences`, `GET /api/v1/geofences`.
 
 ### MESH-020: Radio Performance Baselines
-**Priority**: P2 | **Effort**: L | **Status**: Backlog
+**Priority**: P2 | **Effort**: L | **Status**: Done
 For each node, compute baselines over a learning window (7 days):
   - Typical RSSI range, SNR range, battery drain rate
   - Typical telemetry reporting interval
@@ -197,7 +197,7 @@ A node at -90 RSSI dropping to -110 is more meaningful than a node always at -11
 Store baselines in `device_baselines` table (schema migration v2).
 
 ### MESH-021: Firmware Compatibility Matrix
-**Priority**: P2 | **Effort**: S | **Status**: Backlog
+**Priority**: P2 | **Effort**: S | **Status**: Done
 Track which firmware versions support which hardware models.
 When new firmware releases, auto-flag only compatible devices.
 Prevent accidental flash of incompatible firmware during provisioning.
@@ -205,7 +205,7 @@ Data source: Meshtastic GitHub releases API or manual config file.
 Dashboard: Firmware page with compatibility grid.
 
 ### MESH-022: Radio Health Scoring
-**Priority**: P2 | **Effort**: M | **Status**: Backlog
+**Priority**: P2 | **Effort**: M | **Status**: Done
 Composite health score (0-100) per node based on:
   - Uptime percentage (last 30 days)
   - Signal quality (RSSI/SNR relative to baseline)
@@ -750,5 +750,10 @@ instead of sending all raw data to one gateway.
 | ID | Title | Effort |
 |----|-------|--------|
 | MESH-016 | Mesh Topology Mapping | L |
+| MESH-020 | Radio Performance Baselines | L |
+| MESH-021 | Firmware Compatibility Matrix | S |
+| MESH-022 | Radio Health Scoring | M |
 
 **MESH-016 delivered**: Directed edge storage (topology_edges table), schema v2 migration, TopologyManager with Tarjan's articulation point algorithm, connected component analysis, MQTT NEIGHBORINFO handler, 5 API endpoints, 45 new tests (175 total).
+
+**Sprint 3 delivered (MESH-020 + MESH-021 + MESH-022)**: Schema v3 migration (telemetry_history, device_baselines, firmware_compat tables). BaselineManager with rolling 7-day stats, deviation detection (2σ threshold), pure Python statistics. FirmwareTracker with compatibility matrix, safe-to-flash checks, fleet upgrade scanning. HealthScorer with 5 weighted factors (uptime 30%, signal 25%, battery 20%, config 15%, firmware 10%), composite 0-100 scores, fleet health summary. 12 new API endpoints. 73 new tests (248 total).

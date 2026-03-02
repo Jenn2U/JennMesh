@@ -28,10 +28,7 @@ class GPSPosition(BaseModel):
         lat1, lat2 = math.radians(self.latitude), math.radians(other.latitude)
         dlat = math.radians(other.latitude - self.latitude)
         dlon = math.radians(other.longitude - self.longitude)
-        a = (
-            math.sin(dlat / 2) ** 2
-            + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-        )
+        a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
         return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 

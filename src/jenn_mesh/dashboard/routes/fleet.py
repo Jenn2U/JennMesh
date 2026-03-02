@@ -6,6 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Query, Request
 
+from jenn_mesh.core.health_scoring import HealthScorer
 from jenn_mesh.core.registry import DeviceRegistry
 
 router = APIRouter(tags=["fleet"])
@@ -17,6 +18,14 @@ async def list_fleet(request: Request) -> dict:
     db = request.app.state.db
     registry = DeviceRegistry(db)
     devices = registry.list_devices()
+
+    # Compute health scores for all devices
+    scorer = HealthScorer(db)
+    score_map: dict[str, tuple] = {}
+    for d in devices:
+        result = scorer.score_device(d.node_id)
+        if result:
+            score_map[d.node_id] = (result.overall_score, result.grade.value)
 
     return {
         "count": len(devices),
@@ -35,6 +44,8 @@ async def list_fleet(request: Request) -> dict:
                 "last_seen": d.last_seen.isoformat() if d.last_seen else None,
                 "latitude": d.latitude,
                 "longitude": d.longitude,
+                "health_score": score_map.get(d.node_id, (None, None))[0],
+                "health_grade": score_map.get(d.node_id, (None, None))[1],
             }
             for d in devices
         ],
@@ -95,9 +106,7 @@ async def get_device(request: Request, node_id: str) -> dict:
 
 
 @router.get("/fleet/alerts/active")
-async def active_alerts(
-    request: Request, node_id: Optional[str] = Query(None)
-) -> dict:
+async def active_alerts(request: Request, node_id: Optional[str] = Query(None)) -> dict:
     """Get active alerts, optionally filtered by node."""
     db = request.app.state.db
     alerts = db.get_active_alerts(node_id)

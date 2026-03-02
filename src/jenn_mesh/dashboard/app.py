@@ -74,11 +74,14 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.state.templates = templates
 
     # Register routes
+    from jenn_mesh.dashboard.routes.baselines import router as baselines_router
     from jenn_mesh.dashboard.routes.config import router as config_router
     from jenn_mesh.dashboard.routes.fleet import router as fleet_router
+    from jenn_mesh.dashboard.routes.firmware import router as firmware_router
     from jenn_mesh.dashboard.routes.health import router as health_router
     from jenn_mesh.dashboard.routes.locator import router as locator_router
     from jenn_mesh.dashboard.routes.provision import router as provision_router
+    from jenn_mesh.dashboard.routes.scoring import router as scoring_router
     from jenn_mesh.dashboard.routes.topology import router as topology_router
 
     app.include_router(health_router)
@@ -87,6 +90,9 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(provision_router, prefix="/api/v1")
     app.include_router(locator_router, prefix="/api/v1")
     app.include_router(topology_router, prefix="/api/v1")
+    app.include_router(firmware_router, prefix="/api/v1")
+    app.include_router(baselines_router, prefix="/api/v1")
+    app.include_router(scoring_router, prefix="/api/v1")
 
     # Dashboard HTML page
     @app.get("/")

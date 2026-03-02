@@ -39,37 +39,23 @@ class RemoteAdmin:
 
     def get_remote_config(self, dest_node_id: str) -> RemoteAdminResult:
         """Export configuration from a remote node."""
-        return self._run_remote_cmd(
-            dest_node_id, ["--export-config"], "export-config"
-        )
+        return self._run_remote_cmd(dest_node_id, ["--export-config"], "export-config")
 
-    def set_remote_config(
-        self, dest_node_id: str, key: str, value: str
-    ) -> RemoteAdminResult:
+    def set_remote_config(self, dest_node_id: str, key: str, value: str) -> RemoteAdminResult:
         """Set a single config value on a remote node."""
-        return self._run_remote_cmd(
-            dest_node_id, ["--set", key, value], f"set {key}={value}"
-        )
+        return self._run_remote_cmd(dest_node_id, ["--set", key, value], f"set {key}={value}")
 
-    def apply_remote_config(
-        self, dest_node_id: str, config_path: str
-    ) -> RemoteAdminResult:
+    def apply_remote_config(self, dest_node_id: str, config_path: str) -> RemoteAdminResult:
         """Apply a full YAML config to a remote node."""
-        return self._run_remote_cmd(
-            dest_node_id, ["--configure", config_path], "configure"
-        )
+        return self._run_remote_cmd(dest_node_id, ["--configure", config_path], "configure")
 
     def reboot_remote(self, dest_node_id: str) -> RemoteAdminResult:
         """Reboot a remote node."""
-        return self._run_remote_cmd(
-            dest_node_id, ["--reboot"], "reboot"
-        )
+        return self._run_remote_cmd(dest_node_id, ["--reboot"], "reboot")
 
     def factory_reset_remote(self, dest_node_id: str) -> RemoteAdminResult:
         """Factory reset a remote node (use with extreme caution)."""
-        return self._run_remote_cmd(
-            dest_node_id, ["--factory-reset"], "factory-reset"
-        )
+        return self._run_remote_cmd(dest_node_id, ["--factory-reset"], "factory-reset")
 
     def _run_remote_cmd(
         self,

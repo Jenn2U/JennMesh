@@ -212,6 +212,16 @@ class MQTTSubscriber:
             pass
 
         self.db.upsert_device(node_id=node_id, **updates)
+
+        # Store telemetry sample for baseline computation (MESH-020)
+        self.db.add_telemetry_sample(
+            node_id,
+            rssi=updates.get("signal_rssi"),
+            snr=updates.get("signal_snr"),
+            battery_level=updates.get("battery_level"),
+            voltage=updates.get("voltage"),
+        )
+
         logger.debug("Telemetry updated: %s", node_id)
         if self._on_device_update:
             self._on_device_update(node_id)

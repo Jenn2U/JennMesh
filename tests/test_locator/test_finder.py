@@ -27,18 +27,14 @@ class TestLostNodeFinder:
 
     def test_nearby_nodes_found(self, populated_db: MeshDatabase):
         finder = LostNodeFinder(populated_db)
-        result = finder.locate(
-            LostNodeQuery(target_node_id="!aaa11111", search_radius_meters=5000)
-        )
+        result = finder.locate(LostNodeQuery(target_node_id="!aaa11111", search_radius_meters=5000))
         # Gateway is ~400m away, should be in nearby
         nearby_ids = {n.node_id for n in result.nearby_nodes}
         assert "!bbb22222" in nearby_ids
 
     def test_nearby_excludes_self(self, populated_db: MeshDatabase):
         finder = LostNodeFinder(populated_db)
-        result = finder.locate(
-            LostNodeQuery(target_node_id="!aaa11111", search_radius_meters=5000)
-        )
+        result = finder.locate(LostNodeQuery(target_node_id="!aaa11111", search_radius_meters=5000))
         nearby_ids = {n.node_id for n in result.nearby_nodes}
         assert "!aaa11111" not in nearby_ids
 

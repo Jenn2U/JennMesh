@@ -18,8 +18,7 @@ async def list_templates(request: Request) -> dict:
     return {
         "count": len(templates),
         "templates": [
-            {"role": role, "hash": cm.get_template_hash(role) or ""}
-            for role in templates
+            {"role": role, "hash": cm.get_template_hash(role) or ""} for role in templates
         ],
     }
 

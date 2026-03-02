@@ -70,9 +70,7 @@ class DeviceRegistry:
             active_alerts=len(active_alerts),
             critical_alerts=critical,
             devices_needing_update=sum(1 for d in devices if d.firmware.needs_update),
-            devices_with_drift=sum(
-                1 for d in devices if d.config_hash and d.config_hash.drifted
-            ),
+            devices_with_drift=sum(1 for d in devices if d.config_hash and d.config_hash.drifted),
         )
 
     def check_offline_nodes(self) -> list[Alert]:
@@ -112,17 +110,14 @@ class DeviceRegistry:
             if (
                 device.battery_level is not None
                 and device.battery_level <= threshold_percent
-                and not self.db.has_active_alert(
-                    device.node_id, AlertType.LOW_BATTERY.value
-                )
+                and not self.db.has_active_alert(device.node_id, AlertType.LOW_BATTERY.value)
             ):
                 alert = Alert(
                     node_id=device.node_id,
                     alert_type=AlertType.LOW_BATTERY,
                     severity=ALERT_SEVERITY_MAP[AlertType.LOW_BATTERY],
                     message=(
-                        f"Node {device.display_name} battery low: "
-                        f"{device.battery_level}%"
+                        f"Node {device.display_name} battery low: " f"{device.battery_level}%"
                     ),
                 )
                 self.db.create_alert(
@@ -138,12 +133,8 @@ class DeviceRegistry:
     def _row_to_device(self, row: dict) -> MeshDevice:
         """Convert a database row to a MeshDevice model."""
         now = datetime.utcnow()
-        last_seen = (
-            datetime.fromisoformat(row["last_seen"]) if row.get("last_seen") else None
-        )
-        is_online = (
-            last_seen is not None and (now - last_seen) < self.offline_threshold
-        )
+        last_seen = datetime.fromisoformat(row["last_seen"]) if row.get("last_seen") else None
+        is_online = last_seen is not None and (now - last_seen) < self.offline_threshold
 
         config_hash = None
         if row.get("config_hash"):
@@ -173,9 +164,7 @@ class DeviceRegistry:
             signal_rssi=row.get("signal_rssi"),
             last_seen=last_seen,
             registered_at=(
-                datetime.fromisoformat(row["registered_at"])
-                if row.get("registered_at")
-                else None
+                datetime.fromisoformat(row["registered_at"]) if row.get("registered_at") else None
             ),
             is_online=is_online,
             latitude=row.get("latitude"),

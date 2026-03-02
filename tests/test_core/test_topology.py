@@ -269,7 +269,7 @@ class TestDBTopologyEdgeMethods:
             row = conn.execute(
                 "SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1"
             ).fetchone()
-        assert row["version"] == 2
+        assert row["version"] == 3
 
     def test_topology_edges_table_exists(self, db: MeshDatabase):
         with db.connection() as conn:

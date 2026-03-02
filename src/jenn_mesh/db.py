@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, Optional
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 -- Device registry: every known radio in the fleet
@@ -112,6 +112,46 @@ CREATE TABLE IF NOT EXISTS topology_edges (
 CREATE INDEX IF NOT EXISTS idx_topo_from ON topology_edges(from_node);
 CREATE INDEX IF NOT EXISTS idx_topo_to   ON topology_edges(to_node);
 
+-- Telemetry history: raw samples for rolling baseline computation
+CREATE TABLE IF NOT EXISTS telemetry_history (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id         TEXT NOT NULL,
+    rssi            INTEGER,
+    snr             REAL,
+    battery_level   INTEGER,
+    voltage         REAL,
+    timestamp       TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (node_id) REFERENCES devices(node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_telemetry_node_time ON telemetry_history(node_id, timestamp DESC);
+
+-- Device baselines: precomputed rolling 7-day per-node performance stats
+CREATE TABLE IF NOT EXISTS device_baselines (
+    node_id         TEXT PRIMARY KEY,
+    rssi_mean       REAL,
+    rssi_stddev     REAL,
+    snr_mean        REAL,
+    snr_stddev      REAL,
+    battery_drain_rate REAL,
+    sample_count    INTEGER NOT NULL DEFAULT 0,
+    window_start    TEXT,
+    window_end      TEXT,
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (node_id) REFERENCES devices(node_id)
+);
+
+-- Firmware compatibility matrix: hardware-firmware compatibility tracking
+CREATE TABLE IF NOT EXISTS firmware_compat (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    hw_model        TEXT NOT NULL,
+    firmware_version TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'UNTESTED',
+    notes           TEXT,
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(hw_model, firmware_version)
+);
+CREATE INDEX IF NOT EXISTS idx_compat_hw ON firmware_compat(hw_model);
+
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version         INTEGER NOT NULL,
@@ -147,8 +187,9 @@ class MeshDatabase:
             else:
                 current_version = row["version"]
                 if current_version < SCHEMA_VERSION:
-                    # Migration v1 → v2: topology_edges table
-                    # CREATE TABLE IF NOT EXISTS is idempotent — safe to re-run
+                    # Migrations are idempotent (CREATE TABLE IF NOT EXISTS)
+                    # v1 → v2: topology_edges table
+                    # v2 → v3: telemetry_history, device_baselines, firmware_compat
                     conn.execute(
                         "INSERT INTO schema_version (version) VALUES (?)",
                         (SCHEMA_VERSION,),
@@ -474,3 +515,176 @@ class MeshDatabase:
                 (f"-{max_age_hours}",),
             )
             return cursor.rowcount
+
+    # --- Telemetry history methods ---
+
+    def add_telemetry_sample(
+        self,
+        node_id: str,
+        *,
+        rssi: Optional[int] = None,
+        snr: Optional[float] = None,
+        battery_level: Optional[int] = None,
+        voltage: Optional[float] = None,
+        timestamp: Optional[str] = None,
+    ) -> None:
+        """Store a raw telemetry sample for baseline computation."""
+        with self.connection() as conn:
+            conn.execute(
+                """INSERT INTO telemetry_history
+                   (node_id, rssi, snr, battery_level, voltage, timestamp)
+                   VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))""",
+                (node_id, rssi, snr, battery_level, voltage, timestamp),
+            )
+
+    def get_telemetry_history(self, node_id: str, since: Optional[str] = None) -> list[dict]:
+        """Get telemetry samples for a node, optionally since a timestamp."""
+        with self.connection() as conn:
+            if since:
+                rows = conn.execute(
+                    """SELECT * FROM telemetry_history
+                       WHERE node_id = ? AND timestamp >= ?
+                       ORDER BY timestamp ASC""",
+                    (node_id, since),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT * FROM telemetry_history
+                       WHERE node_id = ? ORDER BY timestamp ASC""",
+                    (node_id,),
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def prune_old_telemetry(self, retention_days: int = 14) -> int:
+        """Delete telemetry samples older than retention_days. Returns count deleted."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """DELETE FROM telemetry_history
+                   WHERE timestamp < datetime('now', ? || ' days')""",
+                (f"-{retention_days}",),
+            )
+            return cursor.rowcount
+
+    # --- Device baseline methods ---
+
+    def upsert_baseline(
+        self,
+        node_id: str,
+        *,
+        rssi_mean: Optional[float] = None,
+        rssi_stddev: Optional[float] = None,
+        snr_mean: Optional[float] = None,
+        snr_stddev: Optional[float] = None,
+        battery_drain_rate: Optional[float] = None,
+        sample_count: int = 0,
+        window_start: Optional[str] = None,
+        window_end: Optional[str] = None,
+    ) -> None:
+        """Insert or update a device's precomputed baseline."""
+        with self.connection() as conn:
+            conn.execute(
+                """INSERT INTO device_baselines
+                   (node_id, rssi_mean, rssi_stddev, snr_mean, snr_stddev,
+                    battery_drain_rate, sample_count, window_start, window_end)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(node_id) DO UPDATE SET
+                   rssi_mean = excluded.rssi_mean,
+                   rssi_stddev = excluded.rssi_stddev,
+                   snr_mean = excluded.snr_mean,
+                   snr_stddev = excluded.snr_stddev,
+                   battery_drain_rate = excluded.battery_drain_rate,
+                   sample_count = excluded.sample_count,
+                   window_start = excluded.window_start,
+                   window_end = excluded.window_end,
+                   updated_at = datetime('now')""",
+                (
+                    node_id,
+                    rssi_mean,
+                    rssi_stddev,
+                    snr_mean,
+                    snr_stddev,
+                    battery_drain_rate,
+                    sample_count,
+                    window_start,
+                    window_end,
+                ),
+            )
+
+    def get_baseline(self, node_id: str) -> Optional[dict]:
+        """Get the precomputed baseline for a device."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM device_baselines WHERE node_id = ?", (node_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_all_baselines(self) -> list[dict]:
+        """Get baselines for all devices."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM device_baselines ORDER BY updated_at DESC"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # --- Firmware compatibility methods ---
+
+    def upsert_firmware_compat(
+        self,
+        hw_model: str,
+        firmware_version: str,
+        status: str = "UNTESTED",
+        notes: Optional[str] = None,
+    ) -> None:
+        """Insert or update a firmware-hardware compatibility entry."""
+        with self.connection() as conn:
+            conn.execute(
+                """INSERT INTO firmware_compat (hw_model, firmware_version, status, notes)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(hw_model, firmware_version) DO UPDATE SET
+                   status = excluded.status,
+                   notes = excluded.notes,
+                   updated_at = datetime('now')""",
+                (hw_model, firmware_version, status, notes),
+            )
+
+    def get_firmware_compat(self, hw_model: str) -> list[dict]:
+        """Get all firmware compatibility entries for a hardware model."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM firmware_compat WHERE hw_model = ?
+                   ORDER BY firmware_version DESC""",
+                (hw_model,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_firmware_compat_entry(self, hw_model: str, firmware_version: str) -> Optional[dict]:
+        """Get a specific firmware-hardware compatibility entry."""
+        with self.connection() as conn:
+            row = conn.execute(
+                """SELECT * FROM firmware_compat
+                   WHERE hw_model = ? AND firmware_version = ?""",
+                (hw_model, firmware_version),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_all_firmware_compat(self) -> list[dict]:
+        """Get the full firmware compatibility matrix."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM firmware_compat ORDER BY hw_model, firmware_version DESC"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def seed_firmware_compat(self, entries: list[tuple[str, str, str]]) -> int:
+        """Bulk-insert firmware compatibility entries. Returns count inserted."""
+        count = 0
+        with self.connection() as conn:
+            for hw_model, firmware_version, status in entries:
+                conn.execute(
+                    """INSERT OR IGNORE INTO firmware_compat
+                       (hw_model, firmware_version, status)
+                       VALUES (?, ?, ?)""",
+                    (hw_model, firmware_version, status),
+                )
+                count += 1
+        return count

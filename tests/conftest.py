@@ -105,4 +105,34 @@ def populated_db(db: MeshDatabase) -> MeshDatabase:
     db.upsert_topology_edge("!bbb22222", "!aaa11111", snr=8.0, rssi=-92)
     db.upsert_topology_edge("!bbb22222", "!ccc33333", snr=-2.0, rssi=-110)
 
+    # Telemetry history for baseline computation (20 samples per active node)
+    for i in range(20):
+        ts = (now - timedelta(days=6, hours=i)).isoformat()
+        db.add_telemetry_sample(
+            "!aaa11111",
+            rssi=-85 + (i % 3),
+            snr=10.5 + (i % 4) * 0.5,
+            battery_level=80 - i,
+            voltage=4.1 - i * 0.01,
+            timestamp=ts,
+        )
+        db.add_telemetry_sample(
+            "!bbb22222",
+            rssi=-92 + (i % 2),
+            snr=8.2 + (i % 3) * 0.3,
+            battery_level=45 - i // 2,
+            voltage=3.7 - i * 0.005,
+            timestamp=ts,
+        )
+
+    # Firmware compatibility matrix seed data
+    db.upsert_firmware_compat("heltec_v3", "2.5.6", "COMPATIBLE")
+    db.upsert_firmware_compat("heltec_v3", "2.5.0", "COMPATIBLE")
+    db.upsert_firmware_compat("tbeam", "2.5.6", "COMPATIBLE")
+    db.upsert_firmware_compat("tbeam_s3", "2.5.6", "COMPATIBLE")
+    db.upsert_firmware_compat("tbeam_s3", "2.4.2", "COMPATIBLE")
+    db.upsert_firmware_compat("rak4631", "2.5.6", "COMPATIBLE")
+    db.upsert_firmware_compat("rak4631", "2.5.0", "COMPATIBLE")
+    db.upsert_firmware_compat("t_echo", "2.4.0", "INCOMPATIBLE", "Known display issue")
+
     return db

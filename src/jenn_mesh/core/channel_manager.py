@@ -65,9 +65,7 @@ class ChannelManager:
     def get_channel_set(self) -> ChannelSet:
         """Load the current channel set from the database, or create defaults."""
         with self.db.connection() as conn:
-            rows = conn.execute(
-                "SELECT * FROM channels ORDER BY channel_index"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM channels ORDER BY channel_index").fetchall()
 
         if not rows:
             return self.create_default_channel_set()
