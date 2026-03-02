@@ -1,0 +1,58 @@
+# JennMesh Development Stack — MQTT Broker + Dashboard
+# Usage: docker compose up -d
+
+version: "3.8"
+
+services:
+  # Dedicated Mosquitto broker for mesh telemetry
+  mesh-broker:
+    image: eclipse-mosquitto:2
+    container_name: jenn-mesh-broker
+    restart: unless-stopped
+    ports:
+      - "1884:1884"    # MQTT (plaintext, internal)
+      - "8884:8884"    # MQTT over TLS (external)
+    volumes:
+      - ./mesh-broker.yaml:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto-acl.conf:/mosquitto/config/acl:ro
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+      # For TLS: mount certs directory
+      # - ./certs:/mosquitto/certs:ro
+    environment:
+      - TZ=UTC
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-p", "1884", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # JennMesh Dashboard
+  dashboard:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    container_name: jenn-mesh-dashboard
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - JENN_MESH_DB_PATH=/data/mesh.db
+      - MQTT_BROKER=mesh-broker
+      - MQTT_PORT=1884
+      - ROOT_PATH=
+    volumes:
+      - dashboard-data:/data
+    depends_on:
+      mesh-broker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8002/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  mosquitto-data:
+  mosquitto-log:
+  dashboard-data:

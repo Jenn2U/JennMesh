@@ -1,0 +1,40 @@
+# Mosquitto MQTT Broker Configuration — JennMesh Dedicated Broker
+# Port: 1884 (separate from JennEdge IoT broker on 1883)
+# Purpose: All mesh radio telemetry flows through this broker
+
+# ── Listeners ───────────────────────────────────────────────────
+listener 1884
+protocol mqtt
+
+# TLS listener (external access via Front Door or direct)
+listener 8884
+protocol mqtt
+certfile /mosquitto/certs/fullchain.pem
+keyfile /mosquitto/certs/privkey.pem
+tls_version tlsv1.2
+
+# ── Authentication ──────────────────────────────────────────────
+allow_anonymous false
+password_file /mosquitto/config/passwd
+
+# ── Authorization (ACLs) ───────────────────────────────────────
+acl_file /mosquitto/config/acl
+
+# ── Persistence ─────────────────────────────────────────────────
+persistence true
+persistence_location /mosquitto/data/
+autosave_interval 300
+
+# ── Logging ─────────────────────────────────────────────────────
+log_dest stdout
+log_type error
+log_type warning
+log_type notice
+log_timestamp true
+log_timestamp_format %Y-%m-%dT%H:%M:%S
+
+# ── Connection limits ───────────────────────────────────────────
+max_connections 200
+max_inflight_messages 50
+max_queued_messages 1000
+message_size_limit 8192

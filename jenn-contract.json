@@ -1,0 +1,57 @@
+{
+  "project": {
+    "name": "jenn-mesh",
+    "version": "0.1.0",
+    "language": "python",
+    "type": "mesh-management-service"
+  },
+  "sync_protocol_version": 2,
+  "mesh_protocol_version": 1,
+  "consumes": {
+    "mqtt_telemetry": {
+      "broker": "dedicated",
+      "topics": ["jenn/mesh/#"],
+      "format": "meshtastic_json",
+      "description": "Node telemetry, position, and status from Meshtastic radios via dedicated MQTT broker"
+    },
+    "radio_serial": {
+      "protocols": ["serial", "tcp", "ble"],
+      "description": "Direct connection to locally-attached Meshtastic radio hardware"
+    }
+  },
+  "produces": {
+    "fleet_health": {
+      "api_prefix": "/api/v1/fleet",
+      "description": "Device registry, health status, alerts for all managed radios"
+    },
+    "lost_node_locator": {
+      "api_prefix": "/api/v1/locate",
+      "description": "GPS position tracking and lost node location queries"
+    },
+    "config_management": {
+      "api_prefix": "/api/v1/config",
+      "description": "Golden config templates, drift detection, remote config push"
+    },
+    "provisioning": {
+      "api_prefix": "/api/v1/provision",
+      "description": "Bench provisioning status and device registration"
+    }
+  },
+  "infrastructure": {
+    "dashboard_port": 8002,
+    "mqtt_broker_port": 1884,
+    "subdomain": "mesh.jenn2u.ai",
+    "container_app": "jennmesh-{env}",
+    "resource_group": "jenn-ai-rg"
+  },
+  "compatibility": {
+    "min_meshtastic_firmware": "2.5.0",
+    "min_meshtastic_python": "2.5.0"
+  },
+  "config": {
+    "offline_threshold_seconds": 600,
+    "low_battery_threshold_percent": 20,
+    "position_retention_days": 30,
+    "alert_cooldown_minutes": 15
+  }
+}

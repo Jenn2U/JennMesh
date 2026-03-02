@@ -1,0 +1,75 @@
+# JennMesh Golden Config — Mobile Client (CLIENT)
+# Purpose: Handheld/portable field device carried by personnel
+# Optimized for: GPS tracking, BLE phone access, battery conservation
+# Apply with: meshtastic --configure mobile-client.yaml
+
+device:
+  role: CLIENT
+  serial_enabled: true
+  debug_log_enabled: false
+  node_info_broadcast_secs: 900
+
+lora:
+  use_preset: true
+  modem_preset: LONG_FAST
+  region: US
+  hop_limit: 3
+  tx_enabled: true
+  tx_power: 20
+  sx126x_rx_boosted_gain: false
+  config_ok_to_mqtt: false
+  ignore_mqtt: false
+
+position:
+  gps_enabled: true
+  fixed_position: false
+  position_broadcast_secs: 300
+  position_broadcast_smart_enabled: true
+  gps_update_interval: 60
+
+power:
+  is_power_saving: true
+  on_battery_shutdown_after_secs: 0
+  adc_multiplier_override: 0
+  wait_bluetooth_secs: 120
+  sds_secs: 7200
+  ls_secs: 300
+  min_wake_secs: 10
+
+display:
+  screen_on_secs: 30
+  auto_screen_carousel_secs: 5
+  compass_north_top: true
+  oled_type: OLED_AUTO
+
+bluetooth:
+  enabled: true
+  mode: RANDOM_PIN
+  fixed_pin: 123456
+
+network:
+  wifi_enabled: false
+  ntp_server: ""
+
+mqtt:
+  enabled: true
+  address: "mqtt.jenn2u.ai"
+  username: "jenn-mesh"
+  password: "PLACEHOLDER_ROTATE_ON_PROVISION"
+  encryption_enabled: true
+  json_enabled: true
+  tls_enabled: true
+  root: "jenn/mesh"
+  proxy_to_client_enabled: false
+  map_reporting_enabled: false
+
+telemetry:
+  device_update_interval: 300
+  environment_measurement_enabled: false
+  environment_update_interval: 0
+  air_quality_enabled: false
+  power_measurement_enabled: false
+
+security:
+  admin_key: []
+  is_managed: false

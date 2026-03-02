@@ -1,0 +1,77 @@
+# JennMesh Golden Config — Relay Node (ROUTER)
+# Purpose: Fixed relay station (mountaintop, tower, building roof)
+# Optimized for: Maximum retransmission, no display, no BLE, always-on power
+# Apply with: meshtastic --configure relay-node.yaml
+
+device:
+  role: ROUTER
+  serial_enabled: true
+  debug_log_enabled: false
+  node_info_broadcast_secs: 900
+
+lora:
+  use_preset: true
+  modem_preset: LONG_FAST
+  region: US
+  hop_limit: 5
+  tx_enabled: true
+  tx_power: 30
+  sx126x_rx_boosted_gain: true
+  config_ok_to_mqtt: false
+  ignore_mqtt: false
+
+position:
+  gps_enabled: false
+  fixed_position: true
+  position_broadcast_secs: 3600
+  position_broadcast_smart_enabled: false
+  gps_update_interval: 0
+
+power:
+  is_power_saving: false
+  on_battery_shutdown_after_secs: 0
+  adc_multiplier_override: 0
+  wait_bluetooth_secs: 0
+  sds_secs: 4294967295
+  ls_secs: 300
+  min_wake_secs: 10
+
+display:
+  screen_on_secs: 0
+  auto_screen_carousel_secs: 0
+  compass_north_top: false
+  oled_type: OLED_AUTO
+
+bluetooth:
+  enabled: false
+  mode: RANDOM_PIN
+  fixed_pin: 123456
+
+network:
+  wifi_enabled: false
+  ntp_server: ""
+
+mqtt:
+  enabled: true
+  address: "mqtt.jenn2u.ai"
+  username: "jenn-mesh"
+  password: "PLACEHOLDER_ROTATE_ON_PROVISION"
+  encryption_enabled: true
+  json_enabled: true
+  tls_enabled: true
+  root: "jenn/mesh"
+  proxy_to_client_enabled: false
+  map_reporting_enabled: false
+
+telemetry:
+  device_update_interval: 300
+  environment_measurement_enabled: false
+  environment_update_interval: 0
+  air_quality_enabled: false
+  power_measurement_enabled: false
+
+security:
+  # PKC admin keys injected during provisioning (base64 public keys)
+  admin_key: []
+  is_managed: false
+  # Set is_managed: true AFTER verifying remote admin works

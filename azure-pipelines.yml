@@ -1,0 +1,122 @@
+# JennMesh CI/CD Pipeline
+# Triggers on main branch and PRs
+# Stages: Lint → Test → Build → Deploy
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    exclude:
+      - "*.md"
+      - docs/
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+
+pool:
+  vmImage: "ubuntu-latest"
+
+variables:
+  pythonVersion: "3.11"
+  pipCacheDir: $(Pipeline.Workspace)/.pip
+
+stages:
+  # ── Lint Stage ────────────────────────────────────────────────
+  - stage: Lint
+    displayName: "Lint & Static Analysis"
+    jobs:
+      - job: LintJob
+        displayName: "Black + Flake8 + Bandit"
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: $(pythonVersion)
+            displayName: "Use Python $(pythonVersion)"
+
+          - script: |
+              pip install black==24.10.0 flake8==7.1.1 bandit
+            displayName: "Install lint tools"
+
+          - script: black --check --line-length 100 src/ tests/
+            displayName: "Black format check"
+
+          - script: flake8 src/ tests/
+            displayName: "Flake8 lint"
+
+          - script: bandit -r src/jenn_mesh/ -ll --skip B404,B603
+            displayName: "Bandit security scan"
+
+  # ── Test Stage ────────────────────────────────────────────────
+  - stage: Test
+    displayName: "Unit & Integration Tests"
+    dependsOn: Lint
+    jobs:
+      - job: TestJob
+        displayName: "Pytest"
+        timeoutInMinutes: 15
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: $(pythonVersion)
+            displayName: "Use Python $(pythonVersion)"
+
+          - script: |
+              pip install -e ".[test]"
+            displayName: "Install with test extras"
+
+          - script: |
+              pytest tests/ -v --tb=short --junitxml=test-results.xml
+            displayName: "Run tests"
+
+          - task: PublishTestResults@2
+            inputs:
+              testResultsFormat: "JUnit"
+              testResultsFiles: "test-results.xml"
+            condition: always()
+            displayName: "Publish test results"
+
+  # ── Build Stage ───────────────────────────────────────────────
+  - stage: Build
+    displayName: "Build & Package"
+    dependsOn: Test
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: BuildJob
+        displayName: "Build Docker image"
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: $(pythonVersion)
+
+          - script: |
+              pip install build
+              python -m build
+            displayName: "Build Python package"
+
+          - script: |
+              docker build -t jennmesh:$(Build.BuildId) -f infra/Dockerfile .
+            displayName: "Build Docker image"
+
+  # ── Deploy Stage ──────────────────────────────────────────────
+  - stage: Deploy_Dev
+    displayName: "Deploy to Dev"
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: DeployDev
+        displayName: "Deploy to Dev Container App"
+        environment: "jennmesh-dev"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: |
+                    echo "Deploy to jennmesh-dev Container App"
+                    echo "Image: jennmesh:$(Build.BuildId)"
+                    # az containerapp update --name jennmesh-dev ...
+                  displayName: "Deploy to dev"

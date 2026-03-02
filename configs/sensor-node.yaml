@@ -1,0 +1,78 @@
+# JennMesh Golden Config — Sensor Node (SENSOR)
+# Purpose: Environmental monitoring station (weather, air quality, soil)
+# Optimized for: Telemetry collection, sleep between readings, minimal TX
+# Apply with: meshtastic --configure sensor-node.yaml
+
+device:
+  role: SENSOR
+  serial_enabled: true
+  debug_log_enabled: false
+  node_info_broadcast_secs: 1800
+
+lora:
+  use_preset: true
+  modem_preset: LONG_FAST
+  region: US
+  hop_limit: 3
+  tx_enabled: true
+  tx_power: 20
+  sx126x_rx_boosted_gain: false
+  config_ok_to_mqtt: false
+  ignore_mqtt: false
+
+position:
+  gps_enabled: true
+  fixed_position: true
+  position_broadcast_secs: 3600
+  position_broadcast_smart_enabled: false
+  gps_update_interval: 0
+
+power:
+  is_power_saving: true
+  on_battery_shutdown_after_secs: 0
+  adc_multiplier_override: 0
+  wait_bluetooth_secs: 30
+  sds_secs: 3600
+  ls_secs: 600
+  min_wake_secs: 10
+
+display:
+  screen_on_secs: 0
+  auto_screen_carousel_secs: 0
+  compass_north_top: false
+  oled_type: OLED_AUTO
+
+bluetooth:
+  enabled: false
+  mode: RANDOM_PIN
+  fixed_pin: 123456
+
+network:
+  wifi_enabled: false
+  ntp_server: ""
+
+mqtt:
+  enabled: true
+  address: "mqtt.jenn2u.ai"
+  username: "jenn-mesh"
+  password: "PLACEHOLDER_ROTATE_ON_PROVISION"
+  encryption_enabled: true
+  json_enabled: true
+  tls_enabled: true
+  root: "jenn/mesh"
+  proxy_to_client_enabled: false
+  map_reporting_enabled: false
+
+telemetry:
+  device_update_interval: 600
+  environment_measurement_enabled: true
+  environment_update_interval: 300
+  environment_screen_enabled: false
+  air_quality_enabled: true
+  air_quality_interval: 300
+  power_measurement_enabled: true
+  power_update_interval: 600
+
+security:
+  admin_key: []
+  is_managed: false

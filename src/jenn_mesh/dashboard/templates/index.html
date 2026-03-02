@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JennMesh — Fleet Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header class="top-bar">
+        <div class="logo">
+            <span class="logo-icon">&#9041;</span>
+            <h1>JennMesh</h1>
+            <span class="version">v{{ version }}</span>
+        </div>
+        <nav>
+            <a href="#fleet" class="nav-link active" data-tab="fleet">Fleet</a>
+            <a href="#map" class="nav-link" data-tab="map">Map</a>
+            <a href="#config" class="nav-link" data-tab="config">Config</a>
+            <a href="#provision" class="nav-link" data-tab="provision">Provision</a>
+            <a href="#locator" class="nav-link" data-tab="locator">Locator</a>
+            <a href="#alerts" class="nav-link" data-tab="alerts">Alerts</a>
+        </nav>
+    </header>
+
+    <main>
+        <!-- Health Summary Bar -->
+        <section class="health-bar" id="health-bar">
+            <div class="stat">
+                <span class="stat-value" id="total-devices">—</span>
+                <span class="stat-label">Total</span>
+            </div>
+            <div class="stat online">
+                <span class="stat-value" id="online-count">—</span>
+                <span class="stat-label">Online</span>
+            </div>
+            <div class="stat offline">
+                <span class="stat-value" id="offline-count">—</span>
+                <span class="stat-label">Offline</span>
+            </div>
+            <div class="stat">
+                <span class="stat-value" id="health-score">—%</span>
+                <span class="stat-label">Health</span>
+            </div>
+            <div class="stat alerts">
+                <span class="stat-value" id="active-alerts">—</span>
+                <span class="stat-label">Alerts</span>
+            </div>
+        </section>
+
+        <!-- Fleet Tab -->
+        <section class="tab-content active" id="tab-fleet">
+            <h2>Fleet Registry</h2>
+            <table class="data-table" id="fleet-table">
+                <thead>
+                    <tr>
+                        <th>Node ID</th>
+                        <th>Name</th>
+                        <th>Role</th>
+                        <th>Hardware</th>
+                        <th>Firmware</th>
+                        <th>Battery</th>
+                        <th>Signal</th>
+                        <th>Status</th>
+                        <th>Last Seen</th>
+                    </tr>
+                </thead>
+                <tbody id="fleet-body">
+                    <tr><td colspan="9" class="loading">Loading fleet data...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Map Tab -->
+        <section class="tab-content" id="tab-map">
+            <h2>Fleet Map</h2>
+            <div id="map-container" class="map-placeholder">
+                <p>Map requires Leaflet.js — positions loaded from <code>/api/v1/positions</code></p>
+            </div>
+        </section>
+
+        <!-- Config Tab -->
+        <section class="tab-content" id="tab-config">
+            <h2>Config Manager</h2>
+            <div id="config-templates"></div>
+            <h3>Drift Report</h3>
+            <div id="drift-report"></div>
+        </section>
+
+        <!-- Provision Tab -->
+        <section class="tab-content" id="tab-provision">
+            <h2>Provisioning Log</h2>
+            <table class="data-table" id="provision-table">
+                <thead>
+                    <tr>
+                        <th>Node ID</th>
+                        <th>Action</th>
+                        <th>Role</th>
+                        <th>Operator</th>
+                        <th>Timestamp</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody id="provision-body">
+                    <tr><td colspan="6" class="loading">Loading...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Locator Tab -->
+        <section class="tab-content" id="tab-locator">
+            <h2>Lost Node Locator</h2>
+            <div class="search-bar">
+                <input type="text" id="locate-input" placeholder="Enter node ID or edge device ID...">
+                <button id="locate-btn" class="btn-primary">Locate</button>
+            </div>
+            <div id="locate-result"></div>
+        </section>
+
+        <!-- Alerts Tab -->
+        <section class="tab-content" id="tab-alerts">
+            <h2>Active Alerts</h2>
+            <div id="alerts-list"></div>
+        </section>
+    </main>
+
+    <footer>
+        <span>JennMesh v{{ version }} — Magnivation JENN Ecosystem</span>
+    </footer>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
