@@ -661,12 +661,11 @@ Batch operations across multiple devices:
 Dashboard: multi-select + batch action buttons.
 Safety: dry-run preview → confirmation → execute with progress tracking.
 
-### MESH-060: Notification Channels (Teams, Slack, Telegram, Email)
+### MESH-060: Notification Channels (Teams, Slack, Email)
 **Priority**: P2 | **Effort**: L | **Status**: Backlog
-Following JennSentry's notification pattern:
-  - Teams Adaptive Cards via Bot Framework
-  - Slack webhooks
-  - Telegram Bot API
+Following Jenn's notification channel pattern (Telegram retired in v6.3.0):
+  - Slack webhooks (Block Kit)
+  - Teams Adaptive Cards via webhook
   - Email (SMTP)
 Configurable per alert type and severity.
 Dashboard: notification settings page.
