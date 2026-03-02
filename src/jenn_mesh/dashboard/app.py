@@ -73,6 +73,13 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
     app.state.templates = templates
 
+    # Initialize workbench singletons
+    from jenn_mesh.core.bulk_push import BulkPushManager
+    from jenn_mesh.core.workbench_manager import WorkbenchManager
+
+    app.state.workbench = WorkbenchManager(db)
+    app.state.bulk_push = BulkPushManager(db)
+
     # Register routes
     from jenn_mesh.dashboard.routes.baselines import router as baselines_router
     from jenn_mesh.dashboard.routes.config import router as config_router
@@ -83,6 +90,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.provision import router as provision_router
     from jenn_mesh.dashboard.routes.scoring import router as scoring_router
     from jenn_mesh.dashboard.routes.topology import router as topology_router
+    from jenn_mesh.dashboard.routes.workbench import router as workbench_router
 
     app.include_router(health_router)
     app.include_router(fleet_router, prefix="/api/v1")
@@ -93,6 +101,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(firmware_router, prefix="/api/v1")
     app.include_router(baselines_router, prefix="/api/v1")
     app.include_router(scoring_router, prefix="/api/v1")
+    app.include_router(workbench_router, prefix="/api/v1")
 
     # Dashboard HTML page
     @app.get("/")

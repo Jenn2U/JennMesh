@@ -7,7 +7,7 @@ JennMesh is the centralized Meshtastic LoRa radio fleet management service for t
 **Version**: 0.1.0
 **Language**: Python 3.11+
 **Type**: Standalone mesh management service with web dashboard + agent daemon + CLI tools
-**Tests**: 0 (pytest) — target 80%+
+**Tests**: 296 (pytest) — target 80%+
 
 ## Architecture
 
@@ -53,6 +53,10 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/provisioning/firmware.py` | Firmware version tracking, update flagging |
 | `src/jenn_mesh/locator/tracker.py` | GPS position aggregation from mesh |
 | `src/jenn_mesh/locator/finder.py` | Lost node locator (last known + proximity) |
+| `src/jenn_mesh/core/workbench_manager.py` | Single-radio workbench session (connect/read/edit/apply/save) |
+| `src/jenn_mesh/core/bulk_push.py` | Bulk push golden templates to fleet via RemoteAdmin |
+| `src/jenn_mesh/models/workbench.py` | Pydantic models for workbench + bulk push |
+| `src/jenn_mesh/dashboard/routes/workbench.py` | 9 API endpoints (workbench + bulk push) |
 | `src/jenn_mesh/dashboard/app.py` | FastAPI dashboard application factory |
 | `src/jenn_mesh/cli.py` | CLI entry point with subcommands |
 | `src/jenn_mesh/db.py` | SQLite WAL schema (devices, positions, alerts, configs) |
@@ -72,7 +76,7 @@ All templates include: PKC admin key, encrypted channels, MQTT pointing to dedic
 
 FastAPI at `mesh.jenn2u.ai` (port 8002, behind Azure Front Door):
 
-**6 Pages**: Fleet Map | Device List | Config Manager | Provisioning | Lost Node Locator | Alerts
+**7 Pages**: Fleet Map | Device List | Config Manager | Provisioning | Lost Node Locator | Alerts | Radio Workbench
 
 - **Run**: `jenn-mesh serve --port 8002`
 - **Stack**: FastAPI + Jinja2 + vanilla JS (no build step)

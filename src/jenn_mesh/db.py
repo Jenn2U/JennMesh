@@ -449,6 +449,14 @@ class MeshDatabase:
             row = conn.execute("SELECT * FROM config_templates WHERE role = ?", (role,)).fetchone()
             return dict(row) if row else None
 
+    def list_config_templates(self) -> list[dict]:
+        """List all golden config templates."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT role, config_hash, version, updated_at FROM config_templates ORDER BY role"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def prune_old_positions(self, retention_days: int = 30) -> int:
         """Delete position records older than retention_days. Returns count deleted."""
         with self.connection() as conn:

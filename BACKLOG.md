@@ -250,7 +250,7 @@ Bidirectional gateway between JennMesh and TAK (Team Awareness Kit) ecosystem.
 **Dependency**: Meshtastic TAK plugin must be enabled on target radios.
 
 ### MESH-066: Radio Workbench — Single-Radio Config Builder
-**Priority**: P1 | **Effort**: XL | **Status**: Backlog
+**Priority**: P1 | **Effort**: XL | **Status**: Done
 Dedicated dashboard page for hands-on single-radio configuration and golden template creation.
 **Connect** — select connection method (serial/USB, TCP, BLE) and connect to one radio.
 **Read** — pull current device config (`--export-config` equivalent) and display as structured form.
@@ -753,7 +753,10 @@ instead of sending all raw data to one gateway.
 | MESH-020 | Radio Performance Baselines | L |
 | MESH-021 | Firmware Compatibility Matrix | S |
 | MESH-022 | Radio Health Scoring | M |
+| MESH-066 | Radio Workbench — Single-Radio Config Builder | XL |
 
 **MESH-016 delivered**: Directed edge storage (topology_edges table), schema v2 migration, TopologyManager with Tarjan's articulation point algorithm, connected component analysis, MQTT NEIGHBORINFO handler, 5 API endpoints, 45 new tests (175 total).
 
 **Sprint 3 delivered (MESH-020 + MESH-021 + MESH-022)**: Schema v3 migration (telemetry_history, device_baselines, firmware_compat tables). BaselineManager with rolling 7-day stats, deviation detection (2σ threshold), pure Python statistics. FirmwareTracker with compatibility matrix, safe-to-flash checks, fleet upgrade scanning. HealthScorer with 5 weighted factors (uptime 30%, signal 25%, battery 20%, config 15%, firmware 10%), composite 0-100 scores, fleet health summary. 12 new API endpoints. 73 new tests (248 total).
+
+**MESH-066 delivered (Radio Workbench)**: WorkbenchManager singleton session (connect/disconnect/read/diff/apply/save-as-template) using meshtastic Python API for local radios. BulkPushManager with background-thread sequential push via RemoteAdmin CLI, cancellation, auto-cleanup. 9 new API endpoints (7 workbench + 2 bulk push), all async-bridged with `asyncio.to_thread()`. Thread-safe with `threading.Lock`. 48 new tests (296 total). Fixed operator-precedence bug in configs_dir handling that leaked test files.
