@@ -7,7 +7,7 @@ JennMesh is the centralized Meshtastic LoRa radio fleet management service for t
 **Version**: 0.2.0
 **Language**: Python 3.11+
 **Type**: Standalone mesh management service with web dashboard + agent daemon + CLI tools
-**Tests**: 296 (pytest) — target 80%+
+**Tests**: 330 (pytest) — target 80%+
 
 ## Architecture
 
@@ -58,6 +58,10 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/models/workbench.py` | Pydantic models for workbench + bulk push |
 | `src/jenn_mesh/dashboard/routes/workbench.py` | 9 API endpoints (workbench + bulk push) |
 | `src/jenn_mesh/dashboard/app.py` | FastAPI dashboard application factory |
+| `src/jenn_mesh/dashboard/middleware.py` | Security headers, request logging, rate limiting, CORS |
+| `src/jenn_mesh/dashboard/error_handlers.py` | Global exception handlers (HTTP, validation, unhandled) |
+| `src/jenn_mesh/dashboard/lifespan.py` | Application startup/shutdown lifecycle |
+| `src/jenn_mesh/dashboard/logging_config.py` | Rotating file + console logging configuration |
 | `src/jenn_mesh/cli.py` | CLI entry point with subcommands |
 | `src/jenn_mesh/db.py` | SQLite WAL schema (devices, positions, alerts, configs) |
 | `configs/*.yaml` | Golden Meshtastic config templates per device role |
@@ -88,6 +92,38 @@ FastAPI at `mesh.jenn2u.ai` (port 8002, behind Azure Front Door):
 - **Run**: `jenn-mesh serve --port 8002`
 - **Stack**: FastAPI + Jinja2 + vanilla JS (no build step)
 - **Design**: Thinking Canvas — teal `#0D7377`, amber `#D97706`, DM Sans/Inter/JetBrains Mono
+
+## Production Hardening (MESH-047)
+
+The dashboard uses a layered middleware + error handling stack:
+
+### Middleware Stack (raw ASGI, outermost first)
+1. `CORSMiddleware` — allows localhost, LAN (10.x, 192.168.x, 172.16-31.x), mesh.jenn2u.ai
+2. `RateLimitMiddleware` — per-IP sliding-window deque, 120 req/min, skips `/health`
+3. `RequestLoggingMiddleware` — logs method/path/status/duration_ms, skips `/health` + `/static`
+4. `SecurityHeadersMiddleware` — X-Content-Type-Options, X-Frame-Options, X-XSS-Protection
+5. `_NoCacheAPIMiddleware` — Cache-Control: no-store for `/api/` routes (Front Door)
+
+### Error Handling Pattern
+- **All errors use `raise HTTPException(status_code, detail=...)`** — never `return {"error": ...}`
+- Global handlers in `error_handlers.py` → `register_error_handlers(app)`
+- HTTPException → JSON `{"detail": ..., "status_code": ...}`; 4xx logged as warning, 5xx as error
+- RequestValidationError → 422 with structured field errors
+- Unhandled Exception → 500 with `logger.exception()`, generic response
+
+### Lifespan Management
+- `@asynccontextmanager` in `lifespan.py` — startup: logging, DB, WorkbenchManager, BulkPushManager, startup_time
+- Graceful degradation: if DB init fails, dashboard runs degraded (health reports "degraded")
+- Test DB injection: `create_app(db=test_db)` sets state directly (httpx ASGITransport doesn't fire lifespan)
+
+### Health Endpoint (`/health`)
+- Components: database (schema_version), workbench, bulk_push, uptime_seconds
+- Overall status: "healthy" or "degraded" (if any component fails)
+
+### Logging
+- Rotating file handler: `/var/log/jenn-mesh/dashboard.log` (10MB × 5 backups, fallback to `./logs/`)
+- Console handler to stderr; plain text format (not JSON)
+- `configure_logging()` called during lifespan startup
 
 ## CLI Commands
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -12,6 +13,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from jenn_mesh import __version__
+from jenn_mesh.dashboard.error_handlers import register_error_handlers
+from jenn_mesh.dashboard.lifespan import lifespan
+from jenn_mesh.dashboard.middleware import (
+    RateLimitMiddleware,
+    RequestLoggingMiddleware,
+    SecurityHeadersMiddleware,
+    configure_cors,
+)
 from jenn_mesh.db import MeshDatabase
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -44,7 +53,8 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     """Create the JennMesh dashboard FastAPI application.
 
     Args:
-        db: Optional MeshDatabase instance (creates default if omitted).
+        db: Optional MeshDatabase instance for testing.
+            When provided, the lifespan will use this DB instead of creating one.
 
     Returns:
         Configured FastAPI app.
@@ -56,14 +66,35 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
         description="Meshtastic fleet management dashboard",
         version=__version__,
         root_path=root_path,
+        lifespan=lifespan,
     )
 
-    # Initialize database
-    if db is None:
-        db = MeshDatabase()
+    # Inject test DB — set state directly because httpx ASGITransport
+    # does NOT fire ASGI lifespan events, so the lifespan won't run in tests.
+    # In production the lifespan handles this; in tests we do it here.
+    if db is not None:
+        app.state._test_db = db
+        app.state.db = db
+        try:
+            from jenn_mesh.core.bulk_push import BulkPushManager
+            from jenn_mesh.core.workbench_manager import WorkbenchManager
 
-    # Store db in app state for route access
-    app.state.db = db
+            app.state.workbench = WorkbenchManager(db)
+            app.state.bulk_push = BulkPushManager(db)
+        except Exception:
+            pass  # graceful degradation — workbench features unavailable
+        app.state.startup_time = datetime.now(timezone.utc)
+
+    # --- Error handlers ---
+    register_error_handlers(app)
+
+    # --- Middleware stack (outermost first) ---
+    # CORS must be added before custom middleware
+    configure_cors(app)
+    app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(_NoCacheAPIMiddleware)
 
     # Mount static files
     if STATIC_DIR.exists():
@@ -72,13 +103,6 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     # Set up Jinja2 templates
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
     app.state.templates = templates
-
-    # Initialize workbench singletons
-    from jenn_mesh.core.bulk_push import BulkPushManager
-    from jenn_mesh.core.workbench_manager import WorkbenchManager
-
-    app.state.workbench = WorkbenchManager(db)
-    app.state.bulk_push = BulkPushManager(db)
 
     # Register routes
     from jenn_mesh.dashboard.routes.baselines import router as baselines_router
@@ -120,8 +144,5 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
                 "docs": f"{root_path}/docs",
             }
         )
-
-    # Add no-cache middleware for API routes
-    app.add_middleware(_NoCacheAPIMiddleware)
 
     return app

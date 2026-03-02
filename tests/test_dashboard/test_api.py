@@ -70,9 +70,9 @@ async def test_fleet_device_detail(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_fleet_device_not_found(client: AsyncClient):
     resp = await client.get("/api/v1/fleet/!nonexistent")
-    assert resp.status_code == 200
+    assert resp.status_code == 404
     data = resp.json()
-    assert "error" in data
+    assert "detail" in data
 
 
 @pytest.mark.asyncio
@@ -111,9 +111,9 @@ async def test_config_template_detail(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_config_template_not_found(client: AsyncClient):
     resp = await client.get("/api/v1/config/templates/nonexistent-role")
-    assert resp.status_code == 200
+    assert resp.status_code == 404
     data = resp.json()
-    assert "error" in data
+    assert "detail" in data
 
 
 @pytest.mark.asyncio
@@ -193,9 +193,9 @@ async def test_positions_single_node(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_positions_node_not_found(client: AsyncClient):
     resp = await client.get("/api/v1/positions/!ddd44444")
-    assert resp.status_code == 200
+    assert resp.status_code == 404
     data = resp.json()
-    assert "error" in data
+    assert "detail" in data
 
 
 # ── No-Cache Middleware ───────────────────────────────────────────────

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from jenn_mesh.core.topology import TopologyManager
 
@@ -86,7 +86,7 @@ async def get_node_topology(request: Request, node_id: str) -> dict:
     node = manager.get_node_topology(node_id)
 
     if node is None:
-        return {"error": "Device not found", "node_id": node_id}
+        raise HTTPException(status_code=404, detail="Device not found")
 
     return {
         "node_id": node.node_id,

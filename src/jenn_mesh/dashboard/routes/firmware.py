@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from jenn_mesh.provisioning.firmware import FirmwareTracker
 
@@ -27,7 +27,7 @@ async def device_firmware_status(request: Request, node_id: str) -> dict:
     status = tracker.check_device_firmware(node_id)
 
     if status is None:
-        return {"error": "Device not found", "node_id": node_id}
+        raise HTTPException(status_code=404, detail="Device not found")
 
     return status
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from jenn_mesh.core.baselines import BaselineManager
 
@@ -40,7 +40,7 @@ async def get_baseline(request: Request, node_id: str) -> dict:
     manager = BaselineManager(db)
     baseline = manager.get_baseline(node_id)
     if baseline is None:
-        return {"error": "No baseline found", "node_id": node_id}
+        raise HTTPException(status_code=404, detail="No baseline found")
     return baseline.model_dump()
 
 
@@ -51,5 +51,5 @@ async def node_deviations(request: Request, node_id: str) -> dict:
     manager = BaselineManager(db)
     report = manager.check_deviation(node_id)
     if report is None:
-        return {"error": "No baseline or device not found", "node_id": node_id}
+        raise HTTPException(status_code=404, detail="No baseline or device not found")
     return report.model_dump()

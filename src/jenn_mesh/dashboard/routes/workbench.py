@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from jenn_mesh.models.workbench import (
     ApplyRequest,
@@ -51,7 +51,7 @@ async def workbench_config(request: Request) -> dict:
         config = await asyncio.to_thread(wm.read_config)
         return config.model_dump()
     except RuntimeError as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/workbench/diff")
@@ -62,7 +62,7 @@ async def workbench_diff(request: Request, body: ApplyRequest) -> dict:
         diff = wm.compute_diff(body.sections)
         return diff.model_dump()
     except RuntimeError as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/workbench/apply")
@@ -92,7 +92,7 @@ async def config_push(request: Request, body: BulkPushRequest) -> dict:
         progress = bpm.start_push(body)
         return progress.model_dump()
     except ValueError as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/config/push/{push_id}")
@@ -101,5 +101,5 @@ async def config_push_progress(request: Request, push_id: str) -> dict:
     bpm = request.app.state.bulk_push
     progress = bpm.get_progress(push_id)
     if progress is None:
-        return {"error": f"Push '{push_id}' not found"}
+        raise HTTPException(status_code=404, detail=f"Push '{push_id}' not found")
     return progress.model_dump()

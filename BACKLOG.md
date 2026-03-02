@@ -306,14 +306,15 @@ for physical USB/Bluetooth radio administration. Bare-metal + systemd (not Docke
 ## ═══════════════════════════════════════════════════
 
 ### MESH-047: Production Readiness Hardening ⬆️ PROMOTED from v1.0.0
-**Priority**: P0 | **Effort**: XL | **Status**: Backlog
-Security audit: TLS everywhere, credential rotation, secret scanning.
-Rate limiting on all API endpoints.
-CORS configuration for dashboard.
-Error handling: graceful degradation when MQTT broker unreachable.
-Logging: structured JSON logs compatible with JennSentry agent parsing.
-Health endpoint: detailed health check (DB connectivity, MQTT connection, agent count).
-Documentation: deployment guide, operations runbook.
+**Priority**: P0 | **Effort**: XL | **Status**: ✅ Done
+- Middleware stack: SecurityHeaders, RequestLogging, RateLimiting (120 req/min per-IP), CORS
+- Global error handlers: HTTPException (404/400), RequestValidationError (422), unhandled (500)
+- Lifespan management: `@asynccontextmanager` startup/shutdown with graceful degradation
+- Structured logging: rotating file handler (10MB × 5 backups) + console
+- Comprehensive health: DB + workbench + bulk_push + uptime + schema_version
+- Fixed 12× HTTP 200 error antipattern across 8 route files → proper 404/400
+- 34 new tests (middleware, error handlers, health, lifespan); 330 total passing
+- 4 new production files: `logging_config.py`, `middleware.py`, `error_handlers.py`, `lifespan.py`
 
 ### MESH-025: Mesh-Based Edge Node Recovery
 **Priority**: P1 | **Effort**: XL | **Status**: Backlog
@@ -549,8 +550,8 @@ Ollama parses natural language → SQL/API query → formatted response.
 Dashboard: chat-style query interface.
 CLI: `jenn-mesh ask "..."`.
 
-### MESH-047: Production Readiness Hardening → Promoted to v0.3.0
-*See v0.3.0 section. Promoted from v1.0.0 due to P0 priority.*
+### MESH-047: Production Readiness Hardening → ✅ Done in v0.3.0
+*Promoted from v1.0.0 and completed — see v0.3.0 section.*
 
 ### MESH-048: Multi-Tenant Support
 **Priority**: P3 | **Effort**: XXL | **Status**: Backlog

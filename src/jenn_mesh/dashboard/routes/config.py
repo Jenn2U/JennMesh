@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from jenn_mesh.core.config_manager import ConfigManager
 
@@ -30,7 +30,7 @@ async def get_template(request: Request, role: str) -> dict:
     cm = ConfigManager(db)
     content = cm.get_template(role)
     if content is None:
-        return {"error": "Template not found", "role": role}
+        raise HTTPException(status_code=404, detail="Template not found")
     return {
         "role": role,
         "yaml_content": content,

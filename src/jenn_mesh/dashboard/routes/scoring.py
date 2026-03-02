@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from jenn_mesh.core.health_scoring import HealthScorer
 
@@ -28,7 +28,7 @@ async def device_health_score(request: Request, node_id: str) -> dict:
     scorer = HealthScorer(db)
     result = scorer.score_device(node_id)
     if result is None:
-        return {"error": "Device not found", "node_id": node_id}
+        raise HTTPException(status_code=404, detail="Device not found")
     return result.model_dump()
 
 

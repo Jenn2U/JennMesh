@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from jenn_mesh.core.health_scoring import HealthScorer
 from jenn_mesh.core.registry import DeviceRegistry
@@ -80,7 +80,7 @@ async def get_device(request: Request, node_id: str) -> dict:
     device = registry.get_device(node_id)
 
     if device is None:
-        return {"error": "Device not found", "node_id": node_id}
+        raise HTTPException(status_code=404, detail="Device not found")
 
     return {
         "node_id": device.node_id,

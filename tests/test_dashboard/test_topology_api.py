@@ -101,6 +101,6 @@ async def test_node_topology(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_node_topology_not_found(client: AsyncClient):
     resp = await client.get("/api/v1/topology/!zzz99999")
-    assert resp.status_code == 200
+    assert resp.status_code == 404
     data = resp.json()
-    assert "error" in data
+    assert "detail" in data

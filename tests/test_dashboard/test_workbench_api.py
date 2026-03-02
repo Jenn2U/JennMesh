@@ -153,8 +153,8 @@ class TestWorkbenchConfig:
         wm = app.state.workbench
         with patch.object(wm, "read_config", side_effect=RuntimeError("Not connected")):
             resp = await client.get("/api/v1/workbench/config")
-        assert resp.status_code == 200
-        assert "error" in resp.json()
+        assert resp.status_code == 400
+        assert "detail" in resp.json()
 
 
 class TestWorkbenchDiff:
@@ -272,8 +272,8 @@ class TestBulkPush:
                     "device_ids": ["!aaa11111"],
                 },
             )
-        assert resp.status_code == 200
-        assert "error" in resp.json()
+        assert resp.status_code == 400
+        assert "detail" in resp.json()
 
     @pytest.mark.asyncio
     async def test_push_progress(self, client: AsyncClient, app):
@@ -297,5 +297,5 @@ class TestBulkPush:
         bpm = app.state.bulk_push
         with patch.object(bpm, "get_progress", return_value=None):
             resp = await client.get("/api/v1/config/push/nonexistent")
-        assert resp.status_code == 200
-        assert "error" in resp.json()
+        assert resp.status_code == 404
+        assert "detail" in resp.json()

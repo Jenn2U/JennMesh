@@ -101,9 +101,9 @@ async def test_baselines_single_node(populated_db: MeshDatabase):
 @pytest.mark.asyncio
 async def test_baselines_not_found(client: AsyncClient):
     resp = await client.get("/api/v1/baselines/!nonexistent")
-    assert resp.status_code == 200
+    assert resp.status_code == 404
     data = resp.json()
-    assert "error" in data
+    assert "detail" in data
 
 
 @pytest.mark.asyncio
@@ -118,10 +118,8 @@ async def test_baselines_deviations_fleet(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_baselines_deviations_node(client: AsyncClient):
     resp = await client.get("/api/v1/baselines/!aaa11111/deviations")
-    assert resp.status_code == 200
-    data = resp.json()
-    # Either a deviation report or error (no baseline precomputed)
-    assert "node_id" in data or "error" in data
+    # Either a deviation report (200) or no baseline yet (404)
+    assert resp.status_code in (200, 404)
 
 
 # ── Health Scoring (MESH-022) ────────────────────────────────────────
@@ -150,9 +148,9 @@ async def test_health_score_single_device(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_health_score_not_found(client: AsyncClient):
     resp = await client.get("/api/v1/health/scores/!nonexistent")
-    assert resp.status_code == 200
+    assert resp.status_code == 404
     data = resp.json()
-    assert "error" in data
+    assert "detail" in data
 
 
 @pytest.mark.asyncio

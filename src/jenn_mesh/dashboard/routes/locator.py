@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from jenn_mesh.locator.finder import LostNodeFinder
 from jenn_mesh.locator.tracker import PositionTracker
@@ -92,7 +92,7 @@ async def node_position(request: Request, node_id: str) -> dict:
     pos = tracker.get_latest_position(node_id)
 
     if pos is None:
-        return {"error": "No position data", "node_id": node_id}
+        raise HTTPException(status_code=404, detail="No position data")
 
     age = tracker.get_position_age_hours(node_id)
     return {
