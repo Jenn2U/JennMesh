@@ -2,8 +2,8 @@
 
 *Part of the JENN Intelligent Ecosystem — Centralized Meshtastic LoRa radio fleet management.*
 
-**Last Updated**: 2026-03-02 (Sprint 3 complete)
-**Current Version**: 0.1.0
+**Last Updated**: 2026-03-02 (v0.2.0 released)
+**Current Version**: 0.2.0
 
 ---
 
@@ -20,14 +20,15 @@
 
 ## Sprint Planning
 
-| Version | Sprint | Theme | Target Date |
-|---------|--------|-------|-------------|
-| **v0.1.0** | Sprint 1-2 | Foundation — scaffold, models, provisioning, agent, MQTT, basic dashboard | TBD |
-| **v0.2.0** | Sprint 3-4 | Intelligence — topology, Ollama, anomaly detection, geofencing, baselines | TBD |
-| **v0.3.0** | Sprint 5-6 | Resilience — mesh recovery, emergency broadcast, backup sync, failover | TBD |
-| **v0.4.0** | Sprint 7-8 | Analytics — coverage mapping, fleet analytics, compliance, simulation | TBD |
-| **v1.0.0** | Sprint 9-10 | Integration — iJENN2u, team comms, external webhooks, production GA | TBD |
-| **v1.1.0+** | Ongoing | Advanced — ML predictions, multi-mesh bridging, satellite integration | TBD |
+| Version | Sprint | Theme | Status |
+|---------|--------|-------|--------|
+| **v0.1.0** | Sprint 1-2 | Foundation — scaffold, models, provisioning, agent, MQTT, basic dashboard | ✅ Released |
+| **v0.2.0** | Sprint 3-4 | Intelligence — topology, baselines, health scoring, workbench, physical deploy | ✅ Released |
+| **v0.3.0** | Sprint 5-6 | Hardening & Resilience — production hardening (P0), mesh recovery, emergency broadcast, heartbeat | **Next Up** |
+| **v0.4.0** | Sprint 7-8 | Intelligence & Analytics — Ollama, geofencing, mesh watchdog, coverage mapping | Planned |
+| **v0.5.0** | Sprint 9-10 | Automation — failover, TAK integration, OTA rollback, mesh relay sync | Planned |
+| **v1.0.0** | Sprint 11-12 | Integration & GA — iJENN2u, team comms, webhooks, API versioning | Planned |
+| **v1.1.0+** | Ongoing | Advanced — ML predictions, multi-mesh bridging, satellite integration | Backlog |
 
 ---
 
@@ -147,7 +148,7 @@ Target: 80%+ coverage. All tests mock hardware — no real radios needed.
 ---
 
 ## ═══════════════════════════════════════════════════
-## v0.2.0 — INTELLIGENCE (Sprint 3-4)
+## v0.2.0 — INTELLIGENCE (Sprint 3-4) ✅ RELEASED
 ## ═══════════════════════════════════════════════════
 
 ### MESH-016: Mesh Topology Mapping
@@ -160,7 +161,7 @@ Dashboard: interactive topology visualization (D3.js or similar).
 API: `GET /api/v1/topology` → graph JSON.
 
 ### MESH-017: Ollama Integration — Anomaly Detection
-**Priority**: P2 | **Effort**: L | **Status**: Backlog
+**Priority**: P2 | **Effort**: L | **Status**: Deferred → v0.4.0
 Optional `jenn-mesh[ollama]` extra (reuse JennEdge's Ollama on 11434).
 Analyze telemetry time-series for unusual patterns:
   - Abnormal battery drain rates (hardware fault?)
@@ -170,7 +171,7 @@ Prompt engineering for Meshtastic-specific anomaly descriptions.
 Feed results into alert system with `anomaly_detected` alert type.
 
 ### MESH-018: Ollama Integration — Alert Summarization
-**Priority**: P2 | **Effort**: M | **Status**: Backlog
+**Priority**: P2 | **Effort**: M | **Status**: Deferred → v0.4.0
 Collapse multiple related alerts into human-readable summaries.
 Example: 47 alerts → "3 nodes in the north cluster lost connectivity —
 likely relay node !2A3B went offline, which serves as the only hop between
@@ -179,7 +180,7 @@ Runs on-demand and on alert threshold (>10 active alerts).
 Dashboard: "AI Summary" panel on Alerts page.
 
 ### MESH-019: Geofencing Alerts
-**Priority**: P2 | **Effort**: M | **Status**: Backlog
+**Priority**: P2 | **Effort**: M | **Status**: Deferred → v0.4.0
 Define operational zones as polygons or bounding boxes.
 Alert when a mobile/tracker node exits its assigned zone.
 Use cases: asset tracking, security perimeter, field team boundaries.
@@ -301,8 +302,18 @@ for physical USB/Bluetooth radio administration. Bare-metal + systemd (not Docke
 ---
 
 ## ═══════════════════════════════════════════════════
-## v0.3.0 — RESILIENCE (Sprint 5-6)
+## v0.3.0 — HARDENING & RESILIENCE (Sprint 5-6)
 ## ═══════════════════════════════════════════════════
+
+### MESH-047: Production Readiness Hardening ⬆️ PROMOTED from v1.0.0
+**Priority**: P0 | **Effort**: XL | **Status**: Backlog
+Security audit: TLS everywhere, credential rotation, secret scanning.
+Rate limiting on all API endpoints.
+CORS configuration for dashboard.
+Error handling: graceful degradation when MQTT broker unreachable.
+Logging: structured JSON logs compatible with JennSentry agent parsing.
+Health endpoint: detailed health check (DB connectivity, MQTT connection, agent count).
+Documentation: deployment guide, operations runbook.
 
 ### MESH-025: Mesh-Based Edge Node Recovery
 **Priority**: P1 | **Effort**: XL | **Status**: Backlog
@@ -356,18 +367,8 @@ If a relay node goes down (detected via offline alert + topology analysis):
   All changes via PKC remote admin. Audit trail. Auto-revert when relay recovers.
 **Requires**: MESH-016 (topology mapping) and MESH-025 (remote admin).
 
-### MESH-030: Mesh Watchdog
-**Priority**: P2 | **Effort**: L | **Status**: Backlog
-Like JennSentry's CI/CD watchdog but for mesh network health.
-Continuous monitoring loop:
-  - Topology connectivity check (all nodes reachable?)
-  - Channel utilization (too many packets? collision risk?)
-  - Relay load balancing (one relay handling too much traffic?)
-  - Battery forecasting (which nodes will die in next 24h?)
-Autonomous tier system (mirrors JennSentry's graduated safety):
-  AUTO_SAFE: adjust transmit power, change hop limits
-  REVIEW_REQUIRED: role changes, relay failover
-  ESCALATE: multi-node failure, network partition
+### MESH-030: Mesh Watchdog → Moved to v0.4.0
+*See v0.4.0 section.*
 
 ### MESH-031: Edge Node Heartbeat via Mesh
 **Priority**: P1 | **Effort**: M | **Status**: Backlog
@@ -398,8 +399,30 @@ Dashboard: probability heatmap overlay on Lost Node Locator map.
 ---
 
 ## ═══════════════════════════════════════════════════
-## v0.4.0 — ANALYTICS (Sprint 7-8)
+## v0.4.0 — INTELLIGENCE & ANALYTICS (Sprint 7-8)
 ## ═══════════════════════════════════════════════════
+
+*Includes MESH-017/018/019 deferred from v0.2.0, plus analytics items.*
+
+### MESH-017: Ollama Integration — Anomaly Detection (deferred from v0.2.0)
+**Priority**: P2 | **Effort**: L | **Status**: Backlog
+→ See v0.2.0 section for full description.
+
+### MESH-018: Ollama Integration — Alert Summarization (deferred from v0.2.0)
+**Priority**: P2 | **Effort**: M | **Status**: Backlog
+→ See v0.2.0 section for full description.
+
+### MESH-019: Geofencing Alerts (deferred from v0.2.0)
+**Priority**: P2 | **Effort**: M | **Status**: Backlog
+→ See v0.2.0 section for full description.
+
+### MESH-030: Mesh Watchdog (moved from v0.3.0)
+**Priority**: P2 | **Effort**: L | **Status**: Backlog
+→ See v0.3.0 section for full description.
+
+### MESH-024: Dashboard — Topology Visualization
+**Priority**: P2 | **Effort**: L | **Status**: Backlog
+→ See v0.2.0 section for full description.
 
 ### MESH-034: Mesh Coverage Mapping
 **Priority**: P2 | **Effort**: XL | **Status**: Backlog
@@ -480,7 +503,7 @@ Exportable for compliance audits.
 ---
 
 ## ═══════════════════════════════════════════════════
-## v1.0.0 — INTEGRATION & GA (Sprint 9-10)
+## v1.0.0 — INTEGRATION & GA (Sprint 11-12)
 ## ═══════════════════════════════════════════════════
 
 ### MESH-042: iJENN2u Mobile Integration
@@ -526,15 +549,8 @@ Ollama parses natural language → SQL/API query → formatted response.
 Dashboard: chat-style query interface.
 CLI: `jenn-mesh ask "..."`.
 
-### MESH-047: Production Readiness Hardening
-**Priority**: P0 | **Effort**: XL | **Status**: Backlog
-Security audit: TLS everywhere, credential rotation, secret scanning.
-Rate limiting on all API endpoints.
-CORS configuration for dashboard.
-Error handling: graceful degradation when MQTT broker unreachable.
-Logging: structured JSON logs compatible with JennSentry agent parsing.
-Health endpoint: detailed health check (DB connectivity, MQTT connection, agent count).
-Documentation: deployment guide, operations runbook.
+### MESH-047: Production Readiness Hardening → Promoted to v0.3.0
+*See v0.3.0 section. Promoted from v1.0.0 due to P0 priority.*
 
 ### MESH-048: Multi-Tenant Support
 **Priority**: P3 | **Effort**: XXL | **Status**: Backlog
@@ -764,7 +780,7 @@ instead of sending all raw data to one gateway.
 
 **Delivered**: 76 source files, 130 tests, 7,182 lines. Scaffold through dashboard, full infra (Container App Bicep, Front Door, DNS), ecosystem integration across all 7 JENN projects.
 
-### v0.2.0 — Intelligence (Sprint 3-4) — In Progress
+### v0.2.0 — Intelligence (Sprint 3-4) — ALL DONE (6/9 shipped, 3 deferred to v0.4.0)
 | ID | Title | Effort |
 |----|-------|--------|
 | MESH-016 | Mesh Topology Mapping | L |
@@ -781,3 +797,5 @@ instead of sending all raw data to one gateway.
 **MESH-066 delivered (Radio Workbench)**: WorkbenchManager singleton session (connect/disconnect/read/diff/apply/save-as-template) using meshtastic Python API for local radios. BulkPushManager with background-thread sequential push via RemoteAdmin CLI, cancellation, auto-cleanup. 9 new API endpoints (7 workbench + 2 bulk push), all async-bridged with `asyncio.to_thread()`. Thread-safe with `threading.Lock`. 48 new tests (296 total). Fixed operator-precedence bug in configs_dir handling that leaked test files.
 
 **MESH-067 delivered (Physical Deployment)**: Full bare-metal deployment infrastructure for ARM64 Linux mesh appliances. 4 systemd services (broker, dashboard, agent, sentry sidecar). 9-phase idempotent install script following JennEdge's proven pattern. Udev rules for Meshtastic USB devices (CP2102, CH9102, FTDI) with auto-start. Mosquitto production config with password auth. Package release script, SSH deploy pipeline, health check, SQLite nightly backup (14-day retention), UFW firewall. 14 new deploy files. Operator guide in deploy/README.md.
+
+**v0.2.0 Release Summary**: 6 items shipped. MESH-017/018/019 (Ollama, Geofencing) deferred to v0.4.0 — priority reprioritization pulled P0 production hardening (MESH-047) into v0.3.0 instead. 296 tests, 90+ source files.
