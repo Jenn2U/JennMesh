@@ -120,6 +120,16 @@ jenn-mesh agent                 # Start agent daemon
 5. `CHANGELOG.md` — new version entry
 6. `CROSS_PROJECT_CONTRACT.md` Section 7 — version matrix row
 
+## Auto-Commit Policy (MANDATORY)
+
+Never leave uncommitted work. Orphaned changes between sessions cause lost work.
+
+- **Commit after every logical unit of work** (feature, fix, refactor) — don't batch unrelated changes
+- **Push after every commit** — local-only commits are still at risk
+- **WIP commits are OK** — `git commit -m "WIP: <description>"` is better than uncommitted files
+- **Start of session**: check `git status` for orphaned changes from prior sessions, commit them first
+- **Before ending**: always commit + push before signaling completion
+
 ## Port Allocation
 
 | Port | Service | Scope |
