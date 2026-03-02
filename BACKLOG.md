@@ -2,7 +2,7 @@
 
 *Part of the JENN Intelligent Ecosystem — Centralized Meshtastic LoRa radio fleet management.*
 
-**Last Updated**: 2026-03-01
+**Last Updated**: 2026-03-01 (backlog audit)
 **Current Version**: 0.1.0
 
 ---
@@ -36,39 +36,39 @@
 ## ═══════════════════════════════════════════════════
 
 ### MESH-001: Project Scaffold & Core Models
-**Priority**: P0 | **Effort**: M | **Status**: In Progress
+**Priority**: P0 | **Effort**: M | **Status**: Done
 Create repo structure, pyproject.toml, CLAUDE.md, jenn-contract.json, VERSION, CHANGELOG.
 Core Pydantic models: MeshDevice, ChannelConfig, FleetHealth, GPSPosition.
 Pre-commit hooks, .flake8, contract version checker.
 
 ### MESH-002: SQLite WAL Database Layer
-**Priority**: P0 | **Effort**: M | **Status**: In Progress
+**Priority**: P0 | **Effort**: M | **Status**: Done
 Schema v1: devices, positions, alerts, config_templates, provisioning_log, channels.
 WAL mode for concurrent read/write. MeshDatabase class with full CRUD operations.
 Position pruning, alert dedup, upsert logic.
 
 ### MESH-003: Golden Config YAML Templates
-**Priority**: P0 | **Effort**: S | **Status**: Pending
+**Priority**: P0 | **Effort**: S | **Status**: Done
 4 role-based templates: relay-node, edge-gateway, mobile-client, sensor-node.
 Common base: PKC admin key, encrypted channels, MQTT to dedicated broker with TLS.
 Per-role overrides: device.role, GPS, display, power, bluetooth, wifi settings.
 
 ### MESH-004: PKC Security Setup
-**Priority**: P0 | **Effort**: M | **Status**: Pending
+**Priority**: P0 | **Effort**: M | **Status**: Done
 Fleet admin PKC keypair generation (stored in Azure Key Vault).
 Admin public key injection into golden configs.
 Managed Mode enable/disable functions.
 Security audit: ensure no PSKs or private keys in logs or error messages.
 
 ### MESH-005: Bench Provisioning CLI
-**Priority**: P0 | **Effort**: L | **Status**: Pending
+**Priority**: P0 | **Effort**: L | **Status**: Done
 Interactive USB provisioning flow: detect device, read current config, select role,
 apply golden template + admin keys + channels, verify, register in DB.
 Non-interactive mode: `jenn-mesh provision --role relay --port /dev/ttyUSB0`.
 Rich terminal output with progress indicators.
 
 ### MESH-006: Agent Radio Bridge
-**Priority**: P0 | **Effort**: L | **Status**: Pending
+**Priority**: P0 | **Effort**: L | **Status**: Done
 Wraps `meshtastic` Python library. Connects via serial, TCP, or BLE.
 Subscribes to mesh packets (NodeInfo, Telemetry, Position, Text).
 Forwards telemetry to dedicated MQTT broker.
@@ -76,14 +76,14 @@ Reconnection logic with exponential backoff.
 Lightweight daemon: `pip install "jenn-mesh[agent]"`, systemd/launchd service.
 
 ### MESH-007: Dedicated MQTT Broker Configuration
-**Priority**: P0 | **Effort**: M | **Status**: Pending
+**Priority**: P0 | **Effort**: M | **Status**: Done
 Mosquitto config (port 1884): TLS certificates, username/password auth, topic ACLs.
 Docker compose for local dev (broker + dashboard).
 Production deployment: Docker on NAS or Azure Container App.
 Topic namespace: `jenn/mesh/{region}/json/{channel}/{nodeId}`.
 
 ### MESH-008: MQTT Telemetry Subscriber
-**Priority**: P0 | **Effort**: L | **Status**: Pending
+**Priority**: P0 | **Effort**: L | **Status**: Done
 Subscribes to `jenn/mesh/#` on dedicated broker.
 Packet handlers: NodeInfo → device registry, Position → positions table,
 Telemetry → battery/signal/environment updates.
@@ -91,14 +91,14 @@ Offline detection: configurable threshold (default 600s).
 Low battery alerts, signal degradation alerts.
 
 ### MESH-009: Device Registry & Fleet Health
-**Priority**: P0 | **Effort**: M | **Status**: Pending
+**Priority**: P0 | **Effort**: M | **Status**: Done
 DeviceRegistry class wrapping MeshDatabase with domain logic.
 Fleet health aggregation: online/offline/degraded counts, alert summaries.
 Health score computation (0-100%). Alert severity mapping.
 Periodic health check loop (check offline, check battery, check drift).
 
 ### MESH-010: Lost Node Locator
-**Priority**: P1 | **Effort**: M | **Status**: Pending
+**Priority**: P1 | **Effort**: M | **Status**: Done
 GPS position aggregation from mesh.
 Haversine distance calculations for proximity search.
 Correlate edge node device IDs with radio node IDs.
@@ -106,7 +106,7 @@ API: `GET /api/v1/locate/{nodeId}` → last position + confidence + nearby activ
 Confidence levels: high (fresh GPS, < 1h), medium (stale, 1-24h), low (> 24h or no GPS).
 
 ### MESH-011: FastAPI Dashboard — Basic
-**Priority**: P1 | **Effort**: XL | **Status**: Pending
+**Priority**: P1 | **Effort**: XL | **Status**: Done
 FastAPI at port 8002 with Jinja2 + vanilla JS.
 Thinking Canvas design: teal #0D7377, amber #D97706, DM Sans/Inter/JetBrains Mono.
 Pages: Fleet Map (Leaflet/OpenStreetMap), Device List (sortable table),
@@ -115,7 +115,7 @@ Health endpoint: `GET /health` for JennSentry monitoring.
 Cache-Control: no-store middleware for all API endpoints.
 
 ### MESH-012: CLI Commands Suite
-**Priority**: P1 | **Effort**: M | **Status**: Pending
+**Priority**: P1 | **Effort**: M | **Status**: Done
 `jenn-mesh provision` — bench flash (interactive + non-interactive).
 `jenn-mesh fleet list` — device table. `jenn-mesh fleet health` — summary.
 `jenn-mesh config drift` — drift report. `jenn-mesh locate <nodeId>`.
@@ -123,14 +123,14 @@ Cache-Control: no-store middleware for all API endpoints.
 `jenn-mesh channels show` — display current channel set.
 
 ### MESH-013: Azure Pipeline & Infrastructure
-**Priority**: P1 | **Effort**: L | **Status**: Pending
+**Priority**: P1 | **Effort**: L | **Status**: Done
 azure-pipelines.yml: Lint (Black/Flake8/Bandit) → Test → Build → Deploy.
 Container App Bicep: `jennmesh-{env}`, resource group `jenn-ai-rg`.
 Front Door route: `mesh.jenn2u.ai`. DNS CNAME in GoDaddy script.
 GitHub mirror: `Jenn2U/JennMesh` for Advanced Security scanning.
 
 ### MESH-014: Ecosystem Integration
-**Priority**: P1 | **Effort**: M | **Status**: Pending
+**Priority**: P1 | **Effort**: M | **Status**: Done
 Update PORT_ALLOCATION.md (8002, 1884).
 Update CROSS_PROJECT_CONTRACT.md Section 7 (version matrix).
 Add JennMesh to `/jenn-pipeline-status` and `/watchdog` skill coverage.
@@ -138,7 +138,7 @@ Update auto-memory (jenn-ecosystem.md).
 Add JennSentry infrastructure monitoring endpoint for mesh.jenn2u.ai.
 
 ### MESH-015: Test Suite — Foundation
-**Priority**: P1 | **Effort**: L | **Status**: Pending
+**Priority**: P1 | **Effort**: L | **Status**: Done (130 tests)
 Unit tests: models, db, registry, config_manager, channel_manager, locator.
 Integration tests: mock radio bridge, mock MQTT subscriber.
 Dashboard tests: FastAPI TestClient for all routes.
@@ -151,9 +151,9 @@ Target: 80%+ coverage. All tests mock hardware — no real radios needed.
 ## ═══════════════════════════════════════════════════
 
 ### MESH-016: Mesh Topology Mapping
-**Priority**: P1 | **Effort**: L | **Status**: Backlog
-Build real-time mesh topology graph from NodeInfo neighbor data.
-Graph adjacency model: nodes, edges (with RSSI/SNR weights).
+**Priority**: P1 | **Effort**: L | **Status**: Done
+Build real-time mesh topology graph from NEIGHBORINFO neighbor data.
+Directed edge storage (asymmetric LoRa links), schema v2 migration.
 Identify single points of failure (relay X is the only path between clusters).
 Identify coverage gaps and isolated segments.
 Dashboard: interactive topology visualization (D3.js or similar).
@@ -725,4 +725,30 @@ instead of sending all raw data to one gateway.
 
 ## Completed
 
-*(None yet — v0.1.0 in progress)*
+### v0.1.0 — Foundation (Sprint 1-2) — ALL DONE
+| ID | Title | Effort |
+|----|-------|--------|
+| MESH-001 | Project Scaffold & Core Models | M |
+| MESH-002 | SQLite WAL Database Layer | M |
+| MESH-003 | Golden Config YAML Templates | S |
+| MESH-004 | PKC Security Setup | M |
+| MESH-005 | Bench Provisioning CLI | L |
+| MESH-006 | Agent Radio Bridge | L |
+| MESH-007 | Dedicated MQTT Broker Configuration | M |
+| MESH-008 | MQTT Telemetry Subscriber | L |
+| MESH-009 | Device Registry & Fleet Health | M |
+| MESH-010 | Lost Node Locator | M |
+| MESH-011 | FastAPI Dashboard — Basic | XL |
+| MESH-012 | CLI Commands Suite | M |
+| MESH-013 | Azure Pipeline & Infrastructure | L |
+| MESH-014 | Ecosystem Integration | M |
+| MESH-015 | Test Suite — Foundation (130 tests) | L |
+
+**Delivered**: 76 source files, 130 tests, 7,182 lines. Scaffold through dashboard, full infra (Container App Bicep, Front Door, DNS), ecosystem integration across all 7 JENN projects.
+
+### v0.2.0 — Intelligence (Sprint 3-4) — In Progress
+| ID | Title | Effort |
+|----|-------|--------|
+| MESH-016 | Mesh Topology Mapping | L |
+
+**MESH-016 delivered**: Directed edge storage (topology_edges table), schema v2 migration, TopologyManager with Tarjan's articulation point algorithm, connected component analysis, MQTT NEIGHBORINFO handler, 5 API endpoints, 45 new tests (175 total).

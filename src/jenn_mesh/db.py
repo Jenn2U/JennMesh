@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, Optional
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 -- Device registry: every known radio in the fleet
@@ -97,6 +97,21 @@ CREATE TABLE IF NOT EXISTS channels (
     UNIQUE(channel_index, name)
 );
 
+-- Topology edges: directed links between mesh nodes (from NEIGHBORINFO packets)
+CREATE TABLE IF NOT EXISTS topology_edges (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_node       TEXT NOT NULL,
+    to_node         TEXT NOT NULL,
+    snr             REAL,
+    rssi            INTEGER,
+    last_updated    TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (from_node) REFERENCES devices(node_id),
+    FOREIGN KEY (to_node)   REFERENCES devices(node_id),
+    UNIQUE(from_node, to_node)
+);
+CREATE INDEX IF NOT EXISTS idx_topo_from ON topology_edges(from_node);
+CREATE INDEX IF NOT EXISTS idx_topo_to   ON topology_edges(to_node);
+
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version         INTEGER NOT NULL,
@@ -128,9 +143,16 @@ class MeshDatabase:
             )
             row = cursor.fetchone()
             if row is None:
-                conn.execute(
-                    "INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,)
-                )
+                conn.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
+            else:
+                current_version = row["version"]
+                if current_version < SCHEMA_VERSION:
+                    # Migration v1 → v2: topology_edges table
+                    # CREATE TABLE IF NOT EXISTS is idempotent — safe to re-run
+                    conn.execute(
+                        "INSERT INTO schema_version (version) VALUES (?)",
+                        (SCHEMA_VERSION,),
+                    )
 
     @contextmanager
     def connection(self) -> Generator[sqlite3.Connection, None, None]:
@@ -231,17 +253,13 @@ class MeshDatabase:
     def get_device(self, node_id: str) -> Optional[dict]:
         """Get a single device by node_id."""
         with self.connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM devices WHERE node_id = ?", (node_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM devices WHERE node_id = ?", (node_id,)).fetchone()
             return dict(row) if row else None
 
     def list_devices(self) -> list[dict]:
         """List all devices, ordered by last_seen descending."""
         with self.connection() as conn:
-            rows = conn.execute(
-                "SELECT * FROM devices ORDER BY last_seen DESC"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM devices ORDER BY last_seen DESC").fetchall()
             return [dict(r) for r in rows]
 
     def add_position(
@@ -387,9 +405,7 @@ class MeshDatabase:
     def get_config_template(self, role: str) -> Optional[dict]:
         """Get a golden config template by role."""
         with self.connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM config_templates WHERE role = ?", (role,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM config_templates WHERE role = ?", (role,)).fetchone()
             return dict(row) if row else None
 
     def prune_old_positions(self, retention_days: int = 30) -> int:
@@ -399,5 +415,62 @@ class MeshDatabase:
                 """DELETE FROM positions
                    WHERE timestamp < datetime('now', ? || ' days')""",
                 (f"-{retention_days}",),
+            )
+            return cursor.rowcount
+
+    # --- Topology edge methods ---
+
+    def upsert_topology_edge(
+        self,
+        from_node: str,
+        to_node: str,
+        *,
+        snr: Optional[float] = None,
+        rssi: Optional[int] = None,
+    ) -> None:
+        """Insert or update a directed topology edge."""
+        with self.connection() as conn:
+            conn.execute(
+                """INSERT INTO topology_edges (from_node, to_node, snr, rssi)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(from_node, to_node) DO UPDATE SET
+                   snr = excluded.snr,
+                   rssi = excluded.rssi,
+                   last_updated = datetime('now')""",
+                (from_node, to_node, snr, rssi),
+            )
+
+    def get_edges_for_node(self, node_id: str) -> list[dict]:
+        """Get all topology edges involving a node (as source or destination)."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM topology_edges
+                   WHERE from_node = ? OR to_node = ?
+                   ORDER BY last_updated DESC""",
+                (node_id, node_id),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_all_edges(self) -> list[dict]:
+        """Get all topology edges in the mesh."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM topology_edges ORDER BY last_updated DESC"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def delete_edges_for_node(self, node_id: str) -> int:
+        """Delete all outgoing edges from a node. Used before replacing with fresh neighbor data."""
+        with self.connection() as conn:
+            cursor = conn.execute("DELETE FROM topology_edges WHERE from_node = ?", (node_id,))
+            return cursor.rowcount
+
+    def prune_stale_edges(self, max_age_hours: int = 24) -> int:
+        """Remove topology edges older than max_age_hours. Returns count deleted."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """DELETE FROM topology_edges
+                   WHERE last_updated < datetime('now', ? || ' hours')""",
+                (f"-{max_age_hours}",),
             )
             return cursor.rowcount

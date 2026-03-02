@@ -44,17 +44,20 @@ class MQTTSubscriber:
         self._on_device_update: Optional[Callable] = None
         self._on_position_update: Optional[Callable] = None
         self._on_alert: Optional[Callable] = None
+        self._on_topology_update: Optional[Callable] = None
 
     def set_callbacks(
         self,
         on_device_update: Optional[Callable] = None,
         on_position_update: Optional[Callable] = None,
         on_alert: Optional[Callable] = None,
+        on_topology_update: Optional[Callable] = None,
     ) -> None:
         """Register optional callbacks for real-time event hooks."""
         self._on_device_update = on_device_update
         self._on_position_update = on_position_update
         self._on_alert = on_alert
+        self._on_topology_update = on_topology_update
 
     def start(self) -> bool:
         """Connect to broker and start listening for mesh telemetry."""
@@ -97,12 +100,16 @@ class MQTTSubscriber:
     def is_running(self) -> bool:
         return self._running
 
-    def _on_connect(self, client: Any, userdata: Any, flags: Any, rc: Any, properties: Any = None) -> None:
+    def _on_connect(
+        self, client: Any, userdata: Any, flags: Any, rc: Any, properties: Any = None
+    ) -> None:
         """Callback when connected to broker — subscribe to topic."""
         logger.info("Connected to MQTT broker, subscribing to %s", self.topic)
         client.subscribe(self.topic)
 
-    def _on_disconnect(self, client: Any, userdata: Any, flags: Any, rc: Any, properties: Any = None) -> None:
+    def _on_disconnect(
+        self, client: Any, userdata: Any, flags: Any, rc: Any, properties: Any = None
+    ) -> None:
         """Callback when disconnected from broker."""
         if self._running:
             logger.warning("MQTT disconnected (rc=%s), will auto-reconnect", rc)
@@ -125,6 +132,8 @@ class MQTTSubscriber:
                 self._handle_position(node_id, payload)
             elif packet_type == "telemetry":
                 self._handle_telemetry(node_id, payload)
+            elif packet_type == "neighborinfo":
+                self._handle_neighborinfo(node_id, payload)
 
         except json.JSONDecodeError:
             logger.debug("Non-JSON MQTT payload on %s", msg.topic)
@@ -206,3 +215,34 @@ class MQTTSubscriber:
         logger.debug("Telemetry updated: %s", node_id)
         if self._on_device_update:
             self._on_device_update(node_id)
+
+    def _handle_neighborinfo(self, node_id: str, payload: dict) -> None:
+        """Process a NeighborInfo packet — update topology edges.
+
+        Meshtastic NEIGHBORINFO format:
+        {"neighborinfo": {"node_id": 681738328, "neighbors": [
+            {"node_id": 681738400, "snr": 10.5}, ...]}}
+        """
+        from jenn_mesh.core.topology import TopologyManager
+
+        info = payload.get("neighborinfo", payload)
+        raw_neighbors = info.get("neighbors", [])
+
+        # Convert integer node IDs to hex ! format
+        neighbors = []
+        for n in raw_neighbors:
+            raw_id = n.get("node_id", n.get("nodeId"))
+            if raw_id is None:
+                continue
+            if isinstance(raw_id, int):
+                hex_id = f"!{raw_id:08x}"
+            else:
+                hex_id = str(raw_id)
+            neighbors.append({"node_id": hex_id, "snr": n.get("snr"), "rssi": n.get("rssi")})
+
+        manager = TopologyManager(self.db)
+        manager.update_neighbors(node_id, neighbors)
+
+        logger.debug("NeighborInfo updated: %s reported %d neighbors", node_id, len(neighbors))
+        if self._on_topology_update:
+            self._on_topology_update(node_id)

@@ -79,12 +79,14 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.health import router as health_router
     from jenn_mesh.dashboard.routes.locator import router as locator_router
     from jenn_mesh.dashboard.routes.provision import router as provision_router
+    from jenn_mesh.dashboard.routes.topology import router as topology_router
 
     app.include_router(health_router)
     app.include_router(fleet_router, prefix="/api/v1")
     app.include_router(config_router, prefix="/api/v1")
     app.include_router(provision_router, prefix="/api/v1")
     app.include_router(locator_router, prefix="/api/v1")
+    app.include_router(topology_router, prefix="/api/v1")
 
     # Dashboard HTML page
     @app.get("/")

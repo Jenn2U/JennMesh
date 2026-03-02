@@ -99,4 +99,10 @@ def populated_db(db: MeshDatabase) -> MeshDatabase:
     db.add_position("!bbb22222", 30.2700, -97.7400, altitude=145.0, source="gps")
     db.add_position("!ccc33333", 32.7767, -96.7970, source="gps", timestamp=old)
 
+    # Topology edges: relay↔gateway (bidirectional), gateway→mobile (unidirectional)
+    # !ddd44444 (sensor) has no edges — isolated
+    db.upsert_topology_edge("!aaa11111", "!bbb22222", snr=10.5, rssi=-85)
+    db.upsert_topology_edge("!bbb22222", "!aaa11111", snr=8.0, rssi=-92)
+    db.upsert_topology_edge("!bbb22222", "!ccc33333", snr=-2.0, rssi=-110)
+
     return db
