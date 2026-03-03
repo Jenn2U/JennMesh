@@ -53,5 +53,11 @@
     "low_battery_threshold_percent": 20,
     "position_retention_days": 30,
     "alert_cooldown_minutes": 15
+  },
+  "notification_channels": {
+    "supported": ["in_app", "webhook", "email", "slack", "teams"],
+    "primary": "slack",
+    "deprecated": ["telegram"],
+    "notes": "Telegram retired in Jenn v6.3.0. Slack (Block Kit) is the primary channel. See CROSS_PROJECT_CONTRACT.md Section 23."
   }
 }

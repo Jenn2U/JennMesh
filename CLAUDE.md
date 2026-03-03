@@ -251,6 +251,14 @@ Never leave uncommitted work. Orphaned changes between sessions cause lost work.
 - **Start of session**: check `git status` for orphaned changes from prior sessions, commit them first
 - **Before ending**: always commit + push before signaling completion
 
+## Notification Channels
+
+- **Slack is the primary notification channel** (Block Kit format via incoming webhook)
+- Teams (Adaptive Card) is the secondary channel
+- Telegram was **retired in Jenn v6.3.0** — do not add Telegram references
+- Supported channels: in_app (SSE), webhook (HTTP POST), email (SMTP), Slack, Teams
+- See CROSS_PROJECT_CONTRACT.md Section 23 for the canonical `NotificationChannel` enum
+
 ## Port Allocation
 
 | Port | Service | Scope |
