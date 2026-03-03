@@ -23,6 +23,7 @@ class AlertType(str, Enum):
     INTERNET_DOWN = "internet_down"
     EMERGENCY_BROADCAST = "emergency_broadcast"
     RECOVERY_SENT = "recovery_sent"
+    CONFIG_PUSH_FAILED = "config_push_failed"
 
 
 class AlertSeverity(str, Enum):
@@ -62,6 +63,7 @@ ALERT_SEVERITY_MAP: dict[AlertType, AlertSeverity] = {
     AlertType.INTERNET_DOWN: AlertSeverity.WARNING,
     AlertType.EMERGENCY_BROADCAST: AlertSeverity.CRITICAL,
     AlertType.RECOVERY_SENT: AlertSeverity.INFO,
+    AlertType.CONFIG_PUSH_FAILED: AlertSeverity.WARNING,
 }
 
 

@@ -7,7 +7,7 @@ JennMesh is the centralized Meshtastic LoRa radio fleet management service for t
 **Version**: 0.2.0
 **Language**: Python 3.11+
 **Type**: Standalone mesh management service with web dashboard + agent daemon + CLI tools
-**Tests**: 601 (pytest) — target 80%+
+**Tests**: 656 (pytest) — target 80%+
 
 ## Architecture
 
@@ -63,19 +63,22 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/locator/tracker.py` | GPS position aggregation from mesh |
 | `src/jenn_mesh/locator/finder.py` | Lost node locator (last known + proximity) |
 | `src/jenn_mesh/core/workbench_manager.py` | Single-radio workbench session (connect/read/edit/apply/save) |
-| `src/jenn_mesh/core/bulk_push.py` | Bulk push golden templates to fleet via RemoteAdmin |
+| `src/jenn_mesh/models/config_queue.py` | ConfigQueueStatus enum, ConfigQueueEntry model, backoff constants |
+| `src/jenn_mesh/core/config_queue_manager.py` | ConfigQueueManager: enqueue, retry loop, backoff, alert escalation |
+| `src/jenn_mesh/core/bulk_push.py` | Bulk push golden templates to fleet via RemoteAdmin (auto-enqueues failures) |
 | `src/jenn_mesh/models/workbench.py` | Pydantic models for workbench + bulk push |
 | `src/jenn_mesh/dashboard/routes/workbench.py` | 9 API endpoints (workbench + bulk push) |
 | `src/jenn_mesh/dashboard/routes/heartbeat.py` | 3 API endpoints (per-device, recent, fleet mesh-status) |
 | `src/jenn_mesh/dashboard/routes/emergency.py` | 4 API endpoints (send broadcast, list, get, fleet status) |
 | `src/jenn_mesh/dashboard/routes/recovery.py` | 4 API endpoints (send command, list history, get by ID, node status) |
+| `src/jenn_mesh/dashboard/routes/config_queue.py` | 5 API endpoints (list, get, retry, cancel, device status) |
 | `src/jenn_mesh/dashboard/app.py` | FastAPI dashboard application factory |
 | `src/jenn_mesh/dashboard/middleware.py` | Security headers, request logging, rate limiting, CORS |
 | `src/jenn_mesh/dashboard/error_handlers.py` | Global exception handlers (HTTP, validation, unhandled) |
 | `src/jenn_mesh/dashboard/lifespan.py` | Application startup/shutdown lifecycle |
 | `src/jenn_mesh/dashboard/logging_config.py` | Rotating file + console logging configuration |
 | `src/jenn_mesh/cli.py` | CLI entry point with subcommands |
-| `src/jenn_mesh/db.py` | SQLite WAL schema v6 (devices, positions, alerts, configs, heartbeats, emergency_broadcasts, recovery_commands) |
+| `src/jenn_mesh/db.py` | SQLite WAL schema v7 (devices, positions, alerts, configs, heartbeats, emergency_broadcasts, recovery_commands, config_queue) |
 | `configs/*.yaml` | Golden Meshtastic config templates per device role |
 | `deploy/systemd/*.service` | 4 systemd unit files (broker, dashboard, agent, sentry) |
 | `deploy/scripts/install.sh` | 9-phase idempotent installer for ARM64 Linux |
@@ -124,12 +127,12 @@ The dashboard uses a layered middleware + error handling stack:
 - Unhandled Exception → 500 with `logger.exception()`, generic response
 
 ### Lifespan Management
-- `@asynccontextmanager` in `lifespan.py` — startup: logging, DB, WorkbenchManager, BulkPushManager, EmergencyBroadcastManager, RecoveryManager, startup_time
+- `@asynccontextmanager` in `lifespan.py` — startup: logging, DB, ConfigQueueManager, WorkbenchManager, BulkPushManager (wired to config queue), EmergencyBroadcastManager, RecoveryManager, config queue retry loop, startup_time
 - Graceful degradation: if DB init fails, dashboard runs degraded (health reports "degraded")
 - Test DB injection: `create_app(db=test_db)` sets state directly (httpx ASGITransport doesn't fire lifespan)
 
 ### Health Endpoint (`/health`)
-- Components: database (schema_version), workbench, bulk_push, mesh_heartbeats, emergency_broadcasts, recovery_commands, uptime_seconds
+- Components: database (schema_version), workbench, bulk_push, mesh_heartbeats, emergency_broadcasts, recovery_commands, config_queue, uptime_seconds
 - Overall status: "healthy" or "degraded" (if any component fails)
 
 ### Logging
@@ -147,7 +150,7 @@ Edge nodes send periodic heartbeat text messages over LoRa radio so JennMesh can
 - Interval: 120 seconds (configurable via `--heartbeat-interval`)
 - Services: comma-separated `name:status` pairs (e.g., `edge:ok,mqtt:down`)
 
-### Database (Schema v4 → v5 adds emergency_broadcasts, v5 → v6 adds recovery_commands)
+### Database (Schema v4 → v5 adds emergency_broadcasts, v5 → v6 adds recovery_commands, v6 → v7 adds config_queue)
 - `mesh_heartbeats` table — stores every received heartbeat
 - `devices.mesh_status` — `"reachable"` | `"unreachable"` | `"unknown"`
 - `devices.last_mesh_heartbeat` — ISO timestamp of last heartbeat
@@ -258,6 +261,44 @@ Send recovery commands to offline edge nodes via LoRa mesh — the killer featur
 ### MQTT Topics
 - `jenn/mesh/command/recovery` — Dashboard → Gateway agent (JSON command payload)
 - `jenn/mesh/command/recovery/ack` — Gateway agent → Dashboard (relay ACK after mesh send)
+
+## Store-and-Forward Config Queue (MESH-028)
+
+When `BulkPushManager` fails to deliver a config to an offline radio, it auto-enqueues the failed push into a persistent `config_queue` table. A background retry loop with exponential backoff attempts redelivery.
+
+### Architecture: BulkPush failure → ConfigQueueManager → RemoteAdmin retry
+1. `BulkPushManager._execute_push()` detects failure → calls `config_queue.enqueue()`
+2. Background `asyncio` task calls `process_pending()` every 30 seconds
+3. For each due entry: `RemoteAdmin.apply_remote_config()` via temp YAML file
+4. Success → mark `delivered`; Failure → increment `retry_count`, compute exponential backoff
+5. Max retries (10) exceeded → `failed_permanent` + `CONFIG_PUSH_FAILED` fleet alert
+
+### Backoff Schedule
+`compute_next_retry_delay(retry_count)` = `min(60 × 2^retry_count, 1920)`
+→ 1m, 2m, 4m, 8m, 16m, 32m (cap)
+
+### Queue Statuses
+`pending` → `retrying` → `delivered` | `failed_permanent` | `cancelled`
+
+### Database (Schema v7)
+- `config_queue` table — stores YAML snapshot, retry state, delivery tracking
+- Indexes on `(status, next_retry_at)` and `(target_node_id, created_at)`
+- 7 DB methods: create, update_status, get, list, get_pending, get_stats, cancel
+
+### API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/config-queue/entries` | List queue entries (filters: node, status, limit) |
+| `GET` | `/api/v1/config-queue/entry/{id}` | Get specific entry |
+| `POST` | `/api/v1/config-queue/entry/{id}/retry` | Manual retry (requires `confirmed: true`) |
+| `POST` | `/api/v1/config-queue/entry/{id}/cancel` | Cancel entry (requires `confirmed: true`) |
+| `GET` | `/api/v1/config-queue/status/{node_id}` | Device queue status |
+
+### Design Decisions
+- **YAML snapshot in queue** — templates can change between enqueue and retry; queued version is the intended version
+- **retry_count NOT reset on manual retry** — preserves full audit trail
+- **Optional wiring** — `BulkPushManager(db, config_queue=None)` default; wired in lifespan
+- **No new wire protocol** — config payloads exceed LoRa 256-byte limit; RemoteAdmin handles fragmentation at firmware level
 
 ## CLI Commands
 

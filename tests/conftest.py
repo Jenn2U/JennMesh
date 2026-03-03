@@ -195,6 +195,26 @@ def populated_db(db: MeshDatabase) -> MeshDatabase:
         expires_at=rc_expires,
     )
 
+    # Config queue seed data (1 pending, 1 delivered)
+    db.create_config_queue_entry(
+        target_node_id="!ccc33333",
+        template_role="relay-node",
+        config_hash="abc123def456",
+        yaml_content="owner:\n  long_name: TestRelay\n",
+        source_push_id="push-seed-001",
+    )
+    cq_delivered_id = db.create_config_queue_entry(
+        target_node_id="!aaa11111",
+        template_role="client-node",
+        config_hash="fed654cba321",
+        yaml_content="owner:\n  long_name: TestClient\n",
+    )
+    db.update_config_queue_status(
+        cq_delivered_id,
+        "delivered",
+        delivered_at=(now - timedelta(minutes=5)).isoformat(),
+    )
+
     # Firmware compatibility matrix seed data
     db.upsert_firmware_compat("heltec_v3", "2.5.6", "COMPATIBLE")
     db.upsert_firmware_compat("heltec_v3", "2.5.0", "COMPATIBLE")

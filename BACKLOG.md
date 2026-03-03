@@ -355,12 +355,15 @@ Requires: mesh-to-MQTT bridge at a gateway node with internet connectivity.
 **Architectural significance**: Makes JENN resilient to complete internet outages.
 
 ### MESH-028: Store-and-Forward Config Queue
-**Priority**: P2 | **Effort**: M | **Status**: Backlog
+**Priority**: P2 | **Effort**: M | **Status**: Done ✅
 When a radio is offline (relay lost power, device in transit), queue config changes.
-Outbox pattern: pending_configs table with target node, config payload, retry count.
-Delivery confirmation: when node reconnects, push pending config, wait for ack.
-Exponential backoff for retries. Max retry limit with escalation to alert.
-Dashboard: pending config queue view with manual retry/cancel.
+Outbox pattern: `config_queue` table with target node, config payload, retry count.
+Delivery confirmation: when node reconnects, push pending config via RemoteAdmin.
+Exponential backoff for retries (1m → 2m → 4m → ... → 32m cap). Max retry limit (10)
+with escalation to `CONFIG_PUSH_FAILED` fleet alert. Dashboard: 5 API endpoints for
+queue visibility, manual retry/cancel, and device queue status. Background `asyncio`
+retry loop processes pending entries every 30s. BulkPushManager auto-enqueues failures.
+Schema v7 adds `config_queue` table + indexes. 55 new tests (656 total).
 
 ### MESH-029: Automated Failover
 **Priority**: P2 | **Effort**: XL | **Status**: Backlog

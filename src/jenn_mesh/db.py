@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, Optional
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 SCHEMA_SQL = """
 -- Device registry: every known radio in the fleet
@@ -204,6 +204,30 @@ CREATE TABLE IF NOT EXISTS recovery_commands (
 CREATE INDEX IF NOT EXISTS idx_recovery_status ON recovery_commands(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_recovery_node ON recovery_commands(target_node_id, created_at DESC);
 
+-- Config queue: store-and-forward outbox for offline radio config pushes
+CREATE TABLE IF NOT EXISTS config_queue (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_node_id  TEXT NOT NULL,
+    template_role   TEXT NOT NULL,
+    config_hash     TEXT NOT NULL,
+    yaml_content    TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    retry_count     INTEGER NOT NULL DEFAULT 0,
+    max_retries     INTEGER NOT NULL DEFAULT 10,
+    last_error      TEXT,
+    source_push_id  TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    next_retry_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    last_retry_at   TEXT,
+    delivered_at    TEXT,
+    escalated_at    TEXT,
+    FOREIGN KEY (target_node_id) REFERENCES devices(node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_config_queue_status
+    ON config_queue(status, next_retry_at ASC);
+CREATE INDEX IF NOT EXISTS idx_config_queue_node
+    ON config_queue(target_node_id, created_at DESC);
+
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version         INTEGER NOT NULL,
@@ -246,6 +270,7 @@ class MeshDatabase:
                     #           devices.mesh_status
                     # v4 → v5: emergency_broadcasts table (CREATE IF NOT EXISTS only)
                     # v5 → v6: recovery_commands table (CREATE IF NOT EXISTS only)
+                    # v6 → v7: config_queue table (CREATE IF NOT EXISTS only)
                     if current_version < 4:
                         # Add new columns (safe: ALTER TABLE ADD COLUMN is idempotent-ish,
                         # but we guard with version check to avoid "duplicate column" errors)
@@ -1021,3 +1046,142 @@ class MeshDatabase:
                 (f"-{minutes}",),
             ).fetchall()
             return [dict(r) for r in rows]
+
+    # ── Config Queue methods ──────────────────────────────────────────
+
+    def create_config_queue_entry(
+        self,
+        target_node_id: str,
+        template_role: str,
+        config_hash: str,
+        yaml_content: str,
+        source_push_id: Optional[str] = None,
+        max_retries: int = 10,
+    ) -> int:
+        """Create a config queue entry and return its ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO config_queue
+                   (target_node_id, template_role, config_hash, yaml_content,
+                    source_push_id, max_retries)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    target_node_id,
+                    template_role,
+                    config_hash,
+                    yaml_content,
+                    source_push_id,
+                    max_retries,
+                ),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def update_config_queue_status(
+        self,
+        entry_id: int,
+        status: str,
+        *,
+        last_error: Optional[str] = None,
+        next_retry_at: Optional[str] = None,
+        last_retry_at: Optional[str] = None,
+        delivered_at: Optional[str] = None,
+        escalated_at: Optional[str] = None,
+        retry_count: Optional[int] = None,
+    ) -> None:
+        """Update a config queue entry's status and optional fields."""
+        updates: list[str] = ["status = ?"]
+        params: list[object] = [status]
+        if last_error is not None:
+            updates.append("last_error = ?")
+            params.append(last_error)
+        if next_retry_at is not None:
+            updates.append("next_retry_at = ?")
+            params.append(next_retry_at)
+        if last_retry_at is not None:
+            updates.append("last_retry_at = ?")
+            params.append(last_retry_at)
+        if delivered_at is not None:
+            updates.append("delivered_at = ?")
+            params.append(delivered_at)
+        if escalated_at is not None:
+            updates.append("escalated_at = ?")
+            params.append(escalated_at)
+        if retry_count is not None:
+            updates.append("retry_count = ?")
+            params.append(retry_count)
+        params.append(entry_id)
+        with self.connection() as conn:
+            conn.execute(
+                f"UPDATE config_queue SET {', '.join(updates)} WHERE id = ?",
+                tuple(params),
+            )
+
+    def get_config_queue_entry(self, entry_id: int) -> Optional[dict]:
+        """Get a config queue entry by ID."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM config_queue WHERE id = ?",
+                (entry_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_config_queue(
+        self,
+        target_node_id: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """List config queue entries with optional filters."""
+        conditions: list[str] = []
+        params: list[object] = []
+        if target_node_id is not None:
+            conditions.append("target_node_id = ?")
+            params.append(target_node_id)
+        if status is not None:
+            conditions.append("status = ?")
+            params.append(status)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        params.append(limit)
+        with self.connection() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM config_queue {where} " f"ORDER BY created_at DESC LIMIT ?",
+                tuple(params),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_pending_queue_entries(self, now_iso: str) -> list[dict]:
+        """Get config queue entries due for retry.
+
+        Returns entries where status is 'pending' or 'retrying'
+        AND next_retry_at <= now_iso, ordered by next_retry_at ASC.
+        """
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM config_queue
+                   WHERE status IN ('pending', 'retrying')
+                     AND next_retry_at <= ?
+                   ORDER BY next_retry_at ASC""",
+                (now_iso,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_config_queue_stats(self) -> dict:
+        """Get aggregate config queue counts by status."""
+        with self.connection() as conn:
+            rows = conn.execute("""SELECT status, COUNT(*) as count
+                   FROM config_queue
+                   GROUP BY status""").fetchall()
+            stats: dict[str, int] = {}
+            for row in rows:
+                stats[row["status"]] = row["count"]
+            return stats
+
+    def cancel_config_queue_entry(self, entry_id: int) -> bool:
+        """Cancel a config queue entry. Returns True if entry existed."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """UPDATE config_queue SET status = 'cancelled'
+                   WHERE id = ? AND status IN ('pending', 'retrying')""",
+                (entry_id,),
+            )
+            return cursor.rowcount > 0

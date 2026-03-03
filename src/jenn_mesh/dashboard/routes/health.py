@@ -93,7 +93,25 @@ async def health_check(request: Request) -> dict:
     else:
         components["recovery_commands"] = {"status": "unavailable"}
 
-    # 7. Uptime
+    # 7. Config queue
+    cq_manager = getattr(request.app.state, "config_queue_manager", None)
+    if cq_manager is not None:
+        try:
+            summary = cq_manager.get_queue_summary()
+            pending = summary.get("pending", 0) + summary.get("retrying", 0)
+            failed_perm = summary.get("failed_permanent", 0)
+            components["config_queue"] = {
+                "status": "healthy",
+                "pending_count": pending,
+                "failed_permanent_count": failed_perm,
+                "total_delivered": summary.get("delivered", 0),
+            }
+        except Exception as exc:
+            components["config_queue"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["config_queue"] = {"status": "unavailable"}
+
+    # 8. Uptime
     startup_time = getattr(request.app.state, "startup_time", None)
     if startup_time is not None:
         uptime = (datetime.now(timezone.utc) - startup_time).total_seconds()

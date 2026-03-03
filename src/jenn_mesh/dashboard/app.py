@@ -76,11 +76,18 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
         app.state._test_db = db
         app.state.db = db
         try:
+            from jenn_mesh.core.config_queue_manager import ConfigQueueManager
+
+            app.state.config_queue_manager = ConfigQueueManager(db=db)
+        except Exception:
+            pass  # graceful degradation — config queue features unavailable
+        try:
             from jenn_mesh.core.bulk_push import BulkPushManager
             from jenn_mesh.core.workbench_manager import WorkbenchManager
 
             app.state.workbench = WorkbenchManager(db)
-            app.state.bulk_push = BulkPushManager(db)
+            config_queue = getattr(app.state, "config_queue_manager", None)
+            app.state.bulk_push = BulkPushManager(db, config_queue=config_queue)
         except Exception:
             pass  # graceful degradation — workbench features unavailable
         try:
@@ -128,6 +135,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.topology import router as topology_router
     from jenn_mesh.dashboard.routes.emergency import router as emergency_router
     from jenn_mesh.dashboard.routes.heartbeat import router as heartbeat_router
+    from jenn_mesh.dashboard.routes.config_queue import router as config_queue_router
     from jenn_mesh.dashboard.routes.recovery import router as recovery_router
     from jenn_mesh.dashboard.routes.workbench import router as workbench_router
 
@@ -146,6 +154,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(workbench_router, prefix="/api/v1")
     app.include_router(emergency_router, prefix="/api/v1")
     app.include_router(recovery_router, prefix="/api/v1")
+    app.include_router(config_queue_router, prefix="/api/v1")
 
     # Dashboard HTML page
     @app.get("/")

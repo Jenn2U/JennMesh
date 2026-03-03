@@ -37,6 +37,7 @@ class BulkPushManager:
         db: MeshDatabase,
         configs_dir: Optional[Path] = None,
         admin_port: str = "auto",
+        config_queue: Optional[object] = None,
     ):
         self._db = db
         if configs_dir is not None:
@@ -46,6 +47,7 @@ class BulkPushManager:
 
             self._configs_dir = CONFIGS_DIR
         self._admin_port = admin_port
+        self._config_queue = config_queue
         self._pushes: dict[str, BulkPushProgress] = {}
         self._cancel_flags: dict[str, bool] = {}
         self._lock = threading.Lock()
@@ -154,6 +156,18 @@ class BulkPushManager:
 
         admin = RemoteAdmin(port=self._admin_port)
 
+        # Read YAML content + hash for config queue (if wired)
+        _yaml_content = ""
+        _config_hash = ""
+        if self._config_queue is not None and template_path.exists():
+            try:
+                _yaml_content = template_path.read_text()
+                from jenn_mesh.core.config_manager import ConfigHash
+
+                _config_hash = ConfigHash.compute(_yaml_content)
+            except Exception:
+                pass  # Non-critical — queue won't store content
+
         for device in progress.devices:
             # Check for cancellation
             with self._lock:
@@ -191,6 +205,16 @@ class BulkPushManager:
                         device.error = result.error or "Unknown error"
                         progress.failed += 1
 
+                # Enqueue failed push for retry (if queue wired)
+                if not result.success and self._config_queue and _yaml_content:
+                    self._enqueue_failed(
+                        device.node_id,
+                        progress.template_name,
+                        _config_hash,
+                        _yaml_content,
+                        push_id,
+                    )
+
                 # Audit trail
                 self._db.log_provisioning(
                     node_id=device.node_id,
@@ -211,8 +235,43 @@ class BulkPushManager:
                     progress.pushing -= 1
                     progress.failed += 1
 
+                # Enqueue failed push for retry (if queue wired)
+                if self._config_queue and _yaml_content:
+                    self._enqueue_failed(
+                        device.node_id,
+                        progress.template_name,
+                        _config_hash,
+                        _yaml_content,
+                        push_id,
+                    )
+
         with self._lock:
             progress.is_complete = True
+
+    def _enqueue_failed(
+        self,
+        node_id: str,
+        template_name: str,
+        config_hash: str,
+        yaml_content: str,
+        push_id: str,
+    ) -> None:
+        """Enqueue a failed push into the config queue for retry."""
+        try:
+            self._config_queue.enqueue(  # type: ignore[union-attr]
+                target_node_id=node_id,
+                template_role=template_name,
+                config_hash=config_hash,
+                yaml_content=yaml_content,
+                source_push_id=push_id,
+            )
+            logger.info(
+                "Queued failed push for %s in config queue (push_id=%s)",
+                node_id,
+                push_id,
+            )
+        except Exception as enq_err:
+            logger.error("Failed to enqueue config for %s: %s", node_id, enq_err)
 
     def _cleanup_stale(self) -> None:
         """Remove completed pushes older than the cleanup threshold."""

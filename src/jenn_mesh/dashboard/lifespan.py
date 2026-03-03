@@ -6,6 +6,7 @@ Follows JennSentry's ``@asynccontextmanager`` lifespan pattern from
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -48,6 +49,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 db = None
         app.state.db = db
 
+    # Best-effort config queue manager init
+    if (
+        not hasattr(app.state, "config_queue_manager")
+        and getattr(app.state, "db", None) is not None
+    ):
+        try:
+            from jenn_mesh.core.config_queue_manager import ConfigQueueManager
+
+            app.state.config_queue_manager = ConfigQueueManager(db=app.state.db)
+        except Exception:
+            logger.exception("Config queue init failed — queue features unavailable")
+
     # Best-effort workbench init (degrade gracefully if DB unavailable)
     if not hasattr(app.state, "workbench") and getattr(app.state, "db", None) is not None:
         try:
@@ -55,7 +68,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             from jenn_mesh.core.workbench_manager import WorkbenchManager
 
             app.state.workbench = WorkbenchManager(app.state.db)
-            app.state.bulk_push = BulkPushManager(app.state.db)
+            # Wire config queue into bulk push for automatic retry on failure
+            config_queue = getattr(app.state, "config_queue_manager", None)
+            app.state.bulk_push = BulkPushManager(app.state.db, config_queue=config_queue)
         except Exception:
             logger.exception("Workbench init failed — workbench features unavailable")
 
@@ -80,8 +95,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if not hasattr(app.state, "startup_time"):
         app.state.startup_time = datetime.now(timezone.utc)
 
+    # Start config queue retry loop if manager available
+    _retry_task = None
+    cq_manager = getattr(app.state, "config_queue_manager", None)
+    if cq_manager is not None:
+        try:
+            from jenn_mesh.core.config_queue_manager import retry_loop_task
+
+            _retry_task = asyncio.create_task(retry_loop_task(cq_manager))
+            logger.info("Config queue retry loop started")
+        except Exception:
+            logger.exception("Failed to start config queue retry loop")
+
     logger.info("JennMesh dashboard started (v%s)", __version__)
 
     yield
+
+    # Cancel config queue retry loop
+    if _retry_task is not None:
+        _retry_task.cancel()
+        try:
+            await _retry_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("Config queue retry loop stopped")
 
     logger.info("JennMesh dashboard shutting down")
