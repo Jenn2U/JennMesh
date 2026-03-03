@@ -127,7 +127,21 @@ async def health_check(request: Request) -> dict:
     else:
         components["drift_remediation"] = {"status": "unavailable"}
 
-    # 9. Uptime
+    # 9. Failover
+    fm = getattr(request.app.state, "failover_manager", None)
+    if fm is not None and db is not None:
+        try:
+            active_events = fm.list_active_failovers()
+            components["failover"] = {
+                "status": "healthy",
+                "active_failover_count": len(active_events),
+            }
+        except Exception as exc:
+            components["failover"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["failover"] = {"status": "unavailable"}
+
+    # 10. Uptime
     startup_time = getattr(request.app.state, "startup_time", None)
     if startup_time is not None:
         uptime = (datetime.now(timezone.utc) - startup_time).total_seconds()

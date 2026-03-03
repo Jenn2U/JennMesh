@@ -7,7 +7,7 @@ JennMesh is the centralized Meshtastic LoRa radio fleet management service for t
 **Version**: 0.2.0
 **Language**: Python 3.11+
 **Type**: Standalone mesh management service with web dashboard + agent daemon + CLI tools
-**Tests**: 688 (pytest) — target 80%+
+**Tests**: 753 (pytest) — target 80%+
 
 ## Architecture
 
@@ -73,13 +73,16 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/dashboard/routes/recovery.py` | 4 API endpoints (send command, list history, get by ID, node status) |
 | `src/jenn_mesh/dashboard/routes/config_queue.py` | 5 API endpoints (list, get, retry, cancel, device status) |
 | `src/jenn_mesh/core/drift_remediation.py` | DriftRemediationManager: preview, remediate, remediate-all, status |
+| `src/jenn_mesh/core/failover_manager.py` | FailoverManager: assess, execute, revert, cancel, check_recoveries |
+| `src/jenn_mesh/models/failover.py` | FailoverEvent, FailoverCompensation, ImpactAssessment models + enums |
+| `src/jenn_mesh/dashboard/routes/failover.py` | 7 API endpoints (assess, execute, revert, cancel, status, active, check-recoveries) |
 | `src/jenn_mesh/dashboard/app.py` | FastAPI dashboard application factory |
 | `src/jenn_mesh/dashboard/middleware.py` | Security headers, request logging, rate limiting, CORS |
 | `src/jenn_mesh/dashboard/error_handlers.py` | Global exception handlers (HTTP, validation, unhandled) |
 | `src/jenn_mesh/dashboard/lifespan.py` | Application startup/shutdown lifecycle |
 | `src/jenn_mesh/dashboard/logging_config.py` | Rotating file + console logging configuration |
 | `src/jenn_mesh/cli.py` | CLI entry point with subcommands |
-| `src/jenn_mesh/db.py` | SQLite WAL schema v7 (devices, positions, alerts, configs, heartbeats, emergency_broadcasts, recovery_commands, config_queue) |
+| `src/jenn_mesh/db.py` | SQLite WAL schema v8 (devices, positions, alerts, configs, heartbeats, emergency_broadcasts, recovery_commands, config_queue, failover_events, failover_compensations) |
 | `configs/*.yaml` | Golden Meshtastic config templates per device role |
 | `deploy/systemd/*.service` | 4 systemd unit files (broker, dashboard, agent, sentry) |
 | `deploy/scripts/install.sh` | 9-phase idempotent installer for ARM64 Linux |
@@ -133,7 +136,7 @@ The dashboard uses a layered middleware + error handling stack:
 - Test DB injection: `create_app(db=test_db)` sets state directly (httpx ASGITransport doesn't fire lifespan)
 
 ### Health Endpoint (`/health`)
-- Components: database (schema_version), workbench, bulk_push, mesh_heartbeats, emergency_broadcasts, recovery_commands, config_queue, drift_remediation, uptime_seconds
+- Components: database (schema_version), workbench, bulk_push, mesh_heartbeats, emergency_broadcasts, recovery_commands, config_queue, drift_remediation, failover, uptime_seconds
 - Overall status: "healthy" or "degraded" (if any component fails)
 
 ### Logging
@@ -151,7 +154,7 @@ Edge nodes send periodic heartbeat text messages over LoRa radio so JennMesh can
 - Interval: 120 seconds (configurable via `--heartbeat-interval`)
 - Services: comma-separated `name:status` pairs (e.g., `edge:ok,mqtt:down`)
 
-### Database (Schema v4 → v5 adds emergency_broadcasts, v5 → v6 adds recovery_commands, v6 → v7 adds config_queue)
+### Database (Schema v4 → v5 adds emergency_broadcasts, v5 → v6 adds recovery_commands, v6 → v7 adds config_queue, v7 → v8 adds failover_events + failover_compensations)
 - `mesh_heartbeats` table — stores every received heartbeat
 - `devices.mesh_status` — `"reachable"` | `"unreachable"` | `"unknown"`
 - `devices.last_mesh_heartbeat` — ISO timestamp of last heartbeat
@@ -325,6 +328,44 @@ One-click fix for config-drifted devices. DriftRemediationManager coordinates Co
 - **Resolve both alert types** — `_handle_success()` resolves CONFIG_DRIFT + CONFIG_PUSH_FAILED
 - **Lightweight coordinator** — no background tasks, no async loops; synchronous calls
 - **Route order** — `remediate-all` (static) defined BEFORE `{node_id}` (param) to prevent FastAPI path capture
+
+## Automated Failover (MESH-029)
+
+When a relay SPOF goes offline, FailoverManager assesses impact, identifies compensation nodes, applies config changes via RemoteAdmin, and auto-reverts when the failed node recovers.
+
+### Flow
+1. Dashboard → `GET /failover/{id}/assess` → impact assessment (dependent nodes, candidates, suggested compensations)
+2. Operator confirms → `POST /failover/{id}/execute` → apply compensations via RemoteAdmin
+3. Recovery check → `POST /failover/check-recoveries` → auto-revert when failed node comes back online
+4. Manual revert → `POST /failover/{event_id}/revert` → restore original config values
+
+### Compensation Types
+- `hop_limit_increase` (lora.hop_limit, max 7) — cheapest, just allows more hops
+- `tx_power_increase` (lora.tx_power, max 30 dBm) — moderate battery cost
+- `role_change` (device.role → ROUTER_CLIENT) — heaviest, makes node route traffic
+
+### API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/failover/{node_id}/assess` | Impact assessment (read-only) |
+| `POST` | `/api/v1/failover/{node_id}/execute` | Execute failover (`confirmed: true`) |
+| `POST` | `/api/v1/failover/{event_id}/revert` | Revert compensations (`confirmed: true`) |
+| `POST` | `/api/v1/failover/{event_id}/cancel` | Cancel without reverting (`confirmed: true`) |
+| `GET` | `/api/v1/failover/{node_id}/status` | Node failover status |
+| `GET` | `/api/v1/failover/active` | List all active failovers |
+| `POST` | `/api/v1/failover/check-recoveries` | Auto-revert recovered nodes |
+
+### Database (Schema v8)
+- `failover_events` — lifecycle tracking (active → reverted/cancelled/revert_failed)
+- `failover_compensations` — individual config changes with original_value for clean revert
+- 8 DB methods: create/get/list/update events, create/get/update compensations
+
+### Design Decisions
+- **set_remote_config() over apply_remote_config()** — single-key changes are faster over LoRa, more granular for tracking/reverting
+- **Battery guard** — skip candidates with battery < 30%
+- **No auto-detection loop** — `check_recoveries()` called explicitly; future enhancement could add periodic task
+- **Separate router** — failover is operationally distinct from topology viewing
+- **Provisioning actions** — `failover_execute` and `failover_revert` follow existing audit trail convention
 
 ## CLI Commands
 

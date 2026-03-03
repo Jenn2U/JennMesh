@@ -366,16 +366,20 @@ retry loop processes pending entries every 30s. BulkPushManager auto-enqueues fa
 Schema v7 adds `config_queue` table + indexes. 55 new tests (656 total).
 
 ### MESH-029: Automated Failover
-**Priority**: P2 | **Effort**: XL | **Status**: Backlog
-If a relay node goes down (detected via offline alert + topology analysis):
-  - Identify which nodes depended on it for connectivity
-  - Check if alternative paths exist
-  - If isolated: reconfigure nearby nodes to compensate:
-    - Increase transmit power on adjacent nodes
-    - Change device role (client → router_client) temporarily
-    - Adjust hop limits
-  All changes via PKC remote admin. Audit trail. Auto-revert when relay recovers.
-**Requires**: MESH-016 (topology mapping) and MESH-025 (remote admin).
+**Priority**: P2 | **Effort**: XL | **Status**: ✅ Done
+When a relay SPOF goes offline, automated failover assesses impact, identifies
+compensation nodes, applies config changes (TX power, hop limit, role) via
+RemoteAdmin, and auto-reverts when the failed node recovers.
+- `FailoverManager` in `core/failover_manager.py` — assess, execute, revert, cancel, check_recoveries
+- `models/failover.py` — FailoverEvent, Compensation, ImpactAssessment models
+- `routes/failover.py` — 7 API endpoints with confirmed gate pattern
+- Topology extensions: `find_dependent_nodes()`, `find_alternative_paths()`, `get_compensation_candidates()`
+- Schema v8: `failover_events` + `failover_compensations` tables, 8 new DB CRUD methods
+- 3 new AlertTypes: FAILOVER_ACTIVATED, FAILOVER_REVERTED, FAILOVER_REVERT_FAILED
+- `/health` includes failover component (#9)
+- Battery guard: skip compensation candidates with < 30% battery
+**Requires**: MESH-016 (topology mapping), MESH-025 (remote admin), MESH-028 (config queue).
+65 new tests (753 total).
 
 ### MESH-030: Mesh Watchdog → Moved to v0.4.0
 *See v0.4.0 section.*

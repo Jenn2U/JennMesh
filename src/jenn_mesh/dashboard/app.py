@@ -111,6 +111,12 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
             )
         except Exception:
             pass  # graceful degradation — drift remediation features unavailable
+        try:
+            from jenn_mesh.core.failover_manager import FailoverManager
+
+            app.state.failover_manager = FailoverManager(db=db)
+        except Exception:
+            pass  # graceful degradation — failover features unavailable
         app.state.startup_time = datetime.now(timezone.utc)
 
     # --- Error handlers ---
@@ -147,6 +153,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.config_queue import router as config_queue_router
     from jenn_mesh.dashboard.routes.recovery import router as recovery_router
     from jenn_mesh.dashboard.routes.workbench import router as workbench_router
+    from jenn_mesh.dashboard.routes.failover import router as failover_router
 
     app.include_router(health_router)
     # Heartbeat router before fleet router — /fleet/mesh-status must match
@@ -164,6 +171,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(emergency_router, prefix="/api/v1")
     app.include_router(recovery_router, prefix="/api/v1")
     app.include_router(config_queue_router, prefix="/api/v1")
+    app.include_router(failover_router, prefix="/api/v1")
 
     # Dashboard HTML page
     @app.get("/")

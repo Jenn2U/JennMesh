@@ -107,6 +107,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             logger.exception("Drift remediation init failed — remediation features unavailable")
 
+    # Best-effort failover manager init
+    if not hasattr(app.state, "failover_manager") and getattr(app.state, "db", None) is not None:
+        try:
+            from jenn_mesh.core.failover_manager import FailoverManager
+
+            app.state.failover_manager = FailoverManager(db=app.state.db)
+        except Exception:
+            logger.exception("Failover manager init failed — failover features unavailable")
+
     if not hasattr(app.state, "startup_time"):
         app.state.startup_time = datetime.now(timezone.utc)
 

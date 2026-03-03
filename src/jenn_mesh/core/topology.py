@@ -8,7 +8,6 @@ from typing import Optional
 
 from jenn_mesh.core.registry import DeviceRegistry
 from jenn_mesh.db import MeshDatabase
-from jenn_mesh.models.device import DeviceRole
 from jenn_mesh.models.topology import TopologyEdge, TopologyGraph, TopologyNode
 
 
@@ -132,6 +131,117 @@ class TopologyManager:
     def prune_stale_edges(self, max_age_hours: int = 24) -> int:
         """Remove topology edges older than threshold."""
         return self._db.prune_stale_edges(max_age_hours)
+
+    # --- Failover analysis ---
+
+    def find_dependent_nodes(
+        self, failed_node_id: str, edges: Optional[list[TopologyEdge]] = None
+    ) -> list[str]:
+        """Find nodes that would lose connectivity if *failed_node_id* goes offline.
+
+        Removes the failed node from the undirected graph, finds connected
+        components in the residual graph, identifies the "main" component
+        (the largest one), and returns all nodes NOT in the main component.
+        """
+        if edges is None:
+            edges = [self._row_to_edge(r) for r in self._db.get_all_edges()]
+        adj = self._build_undirected_adjacency(edges)
+
+        # Remove failed node from adjacency
+        residual: dict[str, set[str]] = {}
+        for node, neighbors in adj.items():
+            if node == failed_node_id:
+                continue
+            residual[node] = neighbors - {failed_node_id}
+
+        all_node_ids = {r["node_id"] for r in self._db.list_devices()}
+        remaining = all_node_ids - {failed_node_id}
+
+        components = self._find_connected_components(remaining, residual)
+        if not components:
+            return []
+
+        # Main component = largest
+        main = max(components, key=len)
+        dependent: list[str] = []
+        for comp in components:
+            if comp is not main:
+                dependent.extend(comp)
+        return sorted(dependent)
+
+    @staticmethod
+    def find_alternative_paths(
+        source: str,
+        target: str,
+        adj: dict[str, set[str]],
+        exclude_node: str,
+    ) -> bool:
+        """BFS check: does a path exist from *source* to *target* when *exclude_node* is removed?"""
+        if source == exclude_node or target == exclude_node:
+            return False
+        visited: set[str] = {exclude_node}
+        queue = [source]
+        while queue:
+            current = queue.pop(0)
+            if current == target:
+                return True
+            if current in visited:
+                continue
+            visited.add(current)
+            for neighbor in adj.get(current, set()):
+                if neighbor not in visited:
+                    queue.append(neighbor)
+        return False
+
+    def get_compensation_candidates(
+        self,
+        failed_node_id: str,
+        edges: Optional[list[TopologyEdge]] = None,
+        min_battery: int = 30,
+    ) -> list[dict]:
+        """Find nearby online nodes that could compensate for a failed relay.
+
+        Returns neighbors of the failed node (and neighbors of dependent nodes)
+        that are online and have battery >= *min_battery* (default 30%).
+        Each result includes the node's current config-relevant fields.
+        """
+        if edges is None:
+            edges = [self._row_to_edge(r) for r in self._db.get_all_edges()]
+        adj = self._build_undirected_adjacency(edges)
+
+        dependent_nodes = self.find_dependent_nodes(failed_node_id, edges)
+
+        # Candidate pool: neighbors of failed node + neighbors of dependent nodes
+        candidate_ids: set[str] = set()
+        for node_id in [failed_node_id] + dependent_nodes:
+            candidate_ids |= adj.get(node_id, set())
+        # Exclude the failed node and dependent nodes themselves
+        candidate_ids -= {failed_node_id}
+        candidate_ids -= set(dependent_nodes)
+
+        # Filter: online + sufficient battery
+        devices = {r["node_id"]: r for r in self._db.list_devices()}
+        candidates: list[dict] = []
+        for cid in sorted(candidate_ids):
+            dev = devices.get(cid)
+            if dev is None:
+                continue
+            # Must be online (check is_online or recent last_seen)
+            if dev.get("mesh_status") == "offline":
+                continue
+            battery = dev.get("battery_level")
+            if battery is not None and battery < min_battery:
+                continue
+            candidates.append(
+                {
+                    "node_id": cid,
+                    "long_name": dev.get("long_name", ""),
+                    "role": dev.get("role", "CLIENT"),
+                    "battery_level": battery,
+                    "signal_snr": dev.get("signal_snr"),
+                }
+            )
+        return candidates
 
     # --- Private helpers ---
 

@@ -1,9 +1,5 @@
 """Tests for TopologyManager — graph analysis, SPOF detection, connectivity."""
 
-from datetime import datetime, timedelta
-
-import pytest
-
 from jenn_mesh.core.topology import TopologyManager
 from jenn_mesh.db import MeshDatabase
 
@@ -279,3 +275,165 @@ class TestDBTopologyEdgeMethods:
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='topology_edges'"
             ).fetchall()
         assert len(tables) == 1
+
+
+# ── Failover analysis methods ────────────────────────────────────────
+
+
+class TestFindDependentNodes:
+    """Tests for find_dependent_nodes() — partition detection after node removal."""
+
+    def test_linear_chain_middle_removed(self, db: MeshDatabase):
+        """A-B-C: removing B isolates either A or C (one becomes dependent)."""
+        for n in ["!a", "!b", "!c"]:
+            db.upsert_device(n)
+        db.upsert_topology_edge("!a", "!b", snr=10.0)
+        db.upsert_topology_edge("!b", "!c", snr=10.0)
+
+        manager = TopologyManager(db)
+        dependent = manager.find_dependent_nodes("!b")
+        # A and C are in separate components after B removed;
+        # the smaller component is "dependent"
+        assert len(dependent) == 1
+        assert dependent[0] in ("!a", "!c")
+
+    def test_star_hub_removed(self, db: MeshDatabase):
+        """Star: hub connects A, B, C. Removing hub → all 3 are isolated components."""
+        for n in ["!hub", "!a", "!b", "!c"]:
+            db.upsert_device(n)
+        db.upsert_topology_edge("!hub", "!a", snr=10.0)
+        db.upsert_topology_edge("!hub", "!b", snr=10.0)
+        db.upsert_topology_edge("!hub", "!c", snr=10.0)
+
+        manager = TopologyManager(db)
+        dependent = manager.find_dependent_nodes("!hub")
+        # All 3 leaf nodes become singletons; the "main" component is one of them,
+        # so 2 of the 3 are dependent
+        assert len(dependent) == 2
+
+    def test_ring_no_dependents(self, db: MeshDatabase):
+        """A-B-C-A ring: removing any node leaves the other two connected."""
+        for n in ["!a", "!b", "!c"]:
+            db.upsert_device(n)
+        db.upsert_topology_edge("!a", "!b", snr=10.0)
+        db.upsert_topology_edge("!b", "!c", snr=10.0)
+        db.upsert_topology_edge("!c", "!a", snr=10.0)
+
+        manager = TopologyManager(db)
+        dependent = manager.find_dependent_nodes("!b")
+        assert dependent == []
+
+    def test_leaf_node_removed(self, db: MeshDatabase):
+        """Removing a leaf has no dependents (rest stays connected)."""
+        for n in ["!a", "!b", "!c"]:
+            db.upsert_device(n)
+        db.upsert_topology_edge("!a", "!b", snr=10.0)
+        db.upsert_topology_edge("!b", "!c", snr=10.0)
+
+        manager = TopologyManager(db)
+        dependent = manager.find_dependent_nodes("!a")
+        assert dependent == []
+
+    def test_populated_fleet_gateway_removed(self, populated_db: MeshDatabase):
+        """Test fleet: gateway (!bbb22222) connects relay to mobile. Removing it
+        isolates mobile from relay → mobile is dependent."""
+        manager = TopologyManager(populated_db)
+        dependent = manager.find_dependent_nodes("!bbb22222")
+        # Mobile (!ccc33333) should be dependent (cut off from relay)
+        assert "!ccc33333" in dependent
+
+
+class TestFindAlternativePaths:
+    """Tests for find_alternative_paths() — BFS path check with node exclusion."""
+
+    def test_path_exists_without_excluded(self, db: MeshDatabase):
+        """A-B-C + A-C: excluding B, path A→C still exists."""
+        for n in ["!a", "!b", "!c"]:
+            db.upsert_device(n)
+        db.upsert_topology_edge("!a", "!b", snr=10.0)
+        db.upsert_topology_edge("!b", "!c", snr=10.0)
+        db.upsert_topology_edge("!a", "!c", snr=10.0)
+
+        adj: dict[str, set[str]] = {"!a": {"!b", "!c"}, "!b": {"!a", "!c"}, "!c": {"!a", "!b"}}
+        assert TopologyManager.find_alternative_paths("!a", "!c", adj, "!b") is True
+
+    def test_no_path_without_excluded(self, db: MeshDatabase):
+        """A-B-C linear: excluding B, no path A→C."""
+        adj: dict[str, set[str]] = {"!a": {"!b"}, "!b": {"!a", "!c"}, "!c": {"!b"}}
+        assert TopologyManager.find_alternative_paths("!a", "!c", adj, "!b") is False
+
+    def test_source_is_excluded(self):
+        """If source == exclude_node, always returns False."""
+        adj: dict[str, set[str]] = {"!a": {"!b"}, "!b": {"!a"}}
+        assert TopologyManager.find_alternative_paths("!a", "!b", adj, "!a") is False
+
+    def test_target_is_excluded(self):
+        """If target == exclude_node, always returns False."""
+        adj: dict[str, set[str]] = {"!a": {"!b"}, "!b": {"!a"}}
+        assert TopologyManager.find_alternative_paths("!a", "!b", adj, "!b") is False
+
+
+class TestGetCompensationCandidates:
+    """Tests for get_compensation_candidates() — nearby healthy compensators."""
+
+    def test_returns_neighbors_of_failed_node(self, db: MeshDatabase):
+        """Chain A-B-C-D: failing B, A stays in main component, C is dependent.
+        D is neighbor of C (dependent) so D could be a candidate if connected."""
+        for n in ["!a", "!b", "!c", "!d"]:
+            db.upsert_device(n, battery_level=80)
+        db.upsert_topology_edge("!a", "!b", snr=10.0)
+        db.upsert_topology_edge("!b", "!c", snr=10.0)
+        # Add a cross-link so !d stays reachable from !a when !b is removed
+        db.upsert_topology_edge("!a", "!d", snr=10.0)
+        db.upsert_topology_edge("!d", "!c", snr=5.0)
+
+        manager = TopologyManager(db)
+        candidates = manager.get_compensation_candidates("!b")
+        candidate_ids = {c["node_id"] for c in candidates}
+        # !a is neighbor of !b, in main component → candidate
+        assert "!a" in candidate_ids
+        assert "!b" not in candidate_ids
+
+    def test_excludes_low_battery_nodes(self, db: MeshDatabase):
+        """Nodes with battery < 30% are excluded from candidates."""
+        # Topology: anchor-hub-low_bat, anchor-hub-ok_bat, anchor-ok_bat (cross-link)
+        # When hub removed: anchor, ok_bat remain connected (cross-link); low_bat isolated
+        db.upsert_device("!anchor", battery_level=90)
+        db.upsert_device("!hub", battery_level=80)
+        db.upsert_device("!low_bat", battery_level=15)
+        db.upsert_device("!ok_bat", battery_level=50)
+        db.upsert_topology_edge("!anchor", "!hub", snr=10.0)
+        db.upsert_topology_edge("!hub", "!low_bat", snr=10.0)
+        db.upsert_topology_edge("!hub", "!ok_bat", snr=10.0)
+        db.upsert_topology_edge("!anchor", "!ok_bat", snr=10.0)  # cross-link
+
+        manager = TopologyManager(db)
+        candidates = manager.get_compensation_candidates("!hub")
+        candidate_ids = {c["node_id"] for c in candidates}
+        # !ok_bat is neighbor of !hub and stays in main component → candidate
+        assert "!ok_bat" in candidate_ids
+        # !low_bat is isolated (dependent) after hub removal → excluded anyway
+        # but also, if it were in main component, battery < 30% would exclude it
+        assert "!low_bat" not in candidate_ids
+
+    def test_excludes_dependent_nodes(self, db: MeshDatabase):
+        """Dependent nodes (those cut off) should not be candidates."""
+        for n in ["!a", "!b", "!c"]:
+            db.upsert_device(n, battery_level=80)
+        db.upsert_topology_edge("!a", "!b", snr=10.0)
+        db.upsert_topology_edge("!b", "!c", snr=10.0)
+
+        manager = TopologyManager(db)
+        # Removing !b: !c is dependent on !b
+        candidates = manager.get_compensation_candidates("!b")
+        candidate_ids = {c["node_id"] for c in candidates}
+        # !a is a neighbor of !b but not dependent, so it's a candidate
+        # !c is dependent so should not be a candidate
+        assert "!c" not in candidate_ids
+
+    def test_empty_when_no_neighbors(self, db: MeshDatabase):
+        """Isolated node has no compensation candidates."""
+        db.upsert_device("!isolated", battery_level=80)
+        manager = TopologyManager(db)
+        candidates = manager.get_compensation_candidates("!isolated")
+        assert candidates == []

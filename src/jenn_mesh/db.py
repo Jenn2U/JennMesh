@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator, Optional
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 SCHEMA_SQL = """
 -- Device registry: every known radio in the fleet
@@ -228,6 +229,44 @@ CREATE INDEX IF NOT EXISTS idx_config_queue_status
 CREATE INDEX IF NOT EXISTS idx_config_queue_node
     ON config_queue(target_node_id, created_at DESC);
 
+-- Failover events: track each failover activation lifecycle
+CREATE TABLE IF NOT EXISTS failover_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    failed_node_id  TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'active',
+    dependent_nodes TEXT NOT NULL DEFAULT '[]',
+    operator        TEXT NOT NULL DEFAULT 'dashboard',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    reverted_at     TEXT,
+    cancelled_at    TEXT,
+    FOREIGN KEY (failed_node_id) REFERENCES devices(node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_failover_events_status
+    ON failover_events(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_failover_events_node
+    ON failover_events(failed_node_id);
+
+-- Failover compensations: individual config changes applied to compensation nodes
+CREATE TABLE IF NOT EXISTS failover_compensations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    failover_event_id INTEGER NOT NULL,
+    comp_node_id    TEXT NOT NULL,
+    comp_type       TEXT NOT NULL,
+    config_key      TEXT NOT NULL,
+    original_value  TEXT NOT NULL,
+    new_value       TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    applied_at      TEXT,
+    reverted_at     TEXT,
+    error           TEXT,
+    FOREIGN KEY (failover_event_id) REFERENCES failover_events(id),
+    FOREIGN KEY (comp_node_id) REFERENCES devices(node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_failover_comp_event
+    ON failover_compensations(failover_event_id);
+CREATE INDEX IF NOT EXISTS idx_failover_comp_node
+    ON failover_compensations(comp_node_id);
+
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version         INTEGER NOT NULL,
@@ -271,6 +310,7 @@ class MeshDatabase:
                     # v4 → v5: emergency_broadcasts table (CREATE IF NOT EXISTS only)
                     # v5 → v6: recovery_commands table (CREATE IF NOT EXISTS only)
                     # v6 → v7: config_queue table (CREATE IF NOT EXISTS only)
+                    # v7 → v8: failover_events + failover_compensations (CREATE IF NOT EXISTS only)
                     if current_version < 4:
                         # Add new columns (safe: ALTER TABLE ADD COLUMN is idempotent-ish,
                         # but we guard with version check to avoid "duplicate column" errors)
@@ -1218,3 +1258,131 @@ class MeshDatabase:
                 (entry_id,),
             )
             return cursor.rowcount > 0
+
+    # ── Failover events ──────────────────────────────────────────────
+
+    def create_failover_event(
+        self,
+        failed_node_id: str,
+        dependent_nodes: str,
+        operator: str = "dashboard",
+    ) -> int:
+        """Create a failover event. *dependent_nodes* is a JSON array string."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO failover_events
+                   (failed_node_id, dependent_nodes, operator)
+                   VALUES (?, ?, ?)""",
+                (failed_node_id, dependent_nodes, operator),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_failover_event(self, event_id: int) -> Optional[dict]:
+        """Get a failover event by ID."""
+        with self.connection() as conn:
+            row = conn.execute("SELECT * FROM failover_events WHERE id = ?", (event_id,)).fetchone()
+            return dict(row) if row else None
+
+    def get_active_failover_for_node(self, node_id: str) -> Optional[dict]:
+        """Get the most recent active failover event for a node."""
+        with self.connection() as conn:
+            row = conn.execute(
+                """SELECT * FROM failover_events
+                   WHERE failed_node_id = ? AND status = 'active'
+                   ORDER BY created_at DESC LIMIT 1""",
+                (node_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_active_failover_events(self) -> list[dict]:
+        """List all active failover events, newest first."""
+        with self.connection() as conn:
+            rows = conn.execute("""SELECT * FROM failover_events
+                   WHERE status = 'active'
+                   ORDER BY created_at DESC""").fetchall()
+            return [dict(r) for r in rows]
+
+    def update_failover_event_status(
+        self, event_id: int, status: str, **timestamp_kwargs: Optional[str]
+    ) -> None:
+        """Update failover event status and optional timestamp columns.
+
+        Example: ``update_failover_event_status(1, 'reverted', reverted_at=now_iso)``
+        """
+        sets = ["status = ?"]
+        params: list = [status]
+        for col, val in timestamp_kwargs.items():
+            sets.append(f"{col} = ?")
+            params.append(val)
+        params.append(event_id)
+        with self.connection() as conn:
+            conn.execute(
+                f"UPDATE failover_events SET {', '.join(sets)} WHERE id = ?",
+                tuple(params),
+            )
+
+    # ── Failover compensations ───────────────────────────────────────
+
+    def create_failover_compensation(
+        self,
+        event_id: int,
+        comp_node_id: str,
+        comp_type: str,
+        config_key: str,
+        original_value: str,
+        new_value: str,
+    ) -> int:
+        """Create a failover compensation record."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO failover_compensations
+                   (failover_event_id, comp_node_id, comp_type, config_key,
+                    original_value, new_value)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (event_id, comp_node_id, comp_type, config_key, original_value, new_value),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_compensations_for_event(self, event_id: int) -> list[dict]:
+        """Get all compensations for a failover event."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM failover_compensations
+                   WHERE failover_event_id = ?
+                   ORDER BY id ASC""",
+                (event_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_compensation_status(
+        self,
+        comp_id: int,
+        status: str,
+        error: Optional[str] = None,
+    ) -> None:
+        """Update compensation status and optional error/timestamp."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if status == "applied":
+            with self.connection() as conn:
+                conn.execute(
+                    """UPDATE failover_compensations
+                       SET status = ?, applied_at = ?, error = ?
+                       WHERE id = ?""",
+                    (status, now_iso, error, comp_id),
+                )
+        elif status == "reverted":
+            with self.connection() as conn:
+                conn.execute(
+                    """UPDATE failover_compensations
+                       SET status = ?, reverted_at = ?, error = ?
+                       WHERE id = ?""",
+                    (status, now_iso, error, comp_id),
+                )
+        else:
+            with self.connection() as conn:
+                conn.execute(
+                    """UPDATE failover_compensations
+                       SET status = ?, error = ?
+                       WHERE id = ?""",
+                    (status, error, comp_id),
+                )
