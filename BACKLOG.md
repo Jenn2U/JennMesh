@@ -329,12 +329,13 @@ Critical safety: authenticate commands via PKC, rate-limit, audit trail.
 **This is a killer feature** — no other system can recover offline edge nodes.
 
 ### MESH-026: Emergency Broadcast System
-**Priority**: P1 | **Effort**: L | **Status**: Backlog
+**Priority**: P1 | **Effort**: L | **Status**: ✅ Done
 Push critical alerts to all field operators via mesh when cloud/internet is down.
 Predefined emergency channels with broadcast capability.
 Emergency message types: evacuation, network down, severe weather, security alert.
 Dashboard: emergency broadcast panel with confirmation (irreversible action).
 All radios display emergency messages regardless of current channel.
+**Implemented**: Schema v5, EmergencyBroadcastManager, 4 API endpoints, MQTT mesh echo delivery confirmation, 65 tests.
 
 ### MESH-027: Mesh Relay for Edge Sync (Backup Path)
 **Priority**: P2 | **Effort**: XXL | **Status**: Backlog

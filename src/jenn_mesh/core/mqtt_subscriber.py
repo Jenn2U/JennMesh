@@ -263,14 +263,20 @@ class MQTTSubscriber:
             self._on_topology_update(node_id)
 
     def _handle_text(self, node_id: str, payload: dict) -> None:
-        """Process a text message — route heartbeats to HeartbeatReceiver."""
-        from jenn_mesh.core.heartbeat_receiver import HeartbeatReceiver
-
+        """Process a text message — route emergencies and heartbeats."""
         text = payload.get("text", "")
         if not isinstance(text, str):
             text = str(text)
 
+        # Emergency broadcasts echoed back through the mesh → delivery confirmation
+        if text.startswith("[EMERGENCY:"):
+            self._handle_emergency_echo(text, node_id)
+            return
+
+        # Heartbeat messages from edge node agents
         if text.startswith("HEARTBEAT|"):
+            from jenn_mesh.core.heartbeat_receiver import HeartbeatReceiver
+
             receiver = HeartbeatReceiver(self.db)
             rssi = payload.get("rssi")
             snr = payload.get("snr")
@@ -279,3 +285,46 @@ class MQTTSubscriber:
                 logger.debug("Heartbeat received via MQTT text: %s", node_id)
                 if self._on_heartbeat:
                     self._on_heartbeat(node_id)
+
+    def _handle_emergency_echo(self, text: str, node_id: str) -> None:
+        """Handle an emergency broadcast echoed back through the mesh.
+
+        When the dashboard sends an emergency broadcast via the agent → radio,
+        the text propagates through the mesh and may arrive back at the
+        MQTT subscriber. This confirms mesh-level delivery.
+        """
+        from jenn_mesh.models.emergency import EmergencyBroadcast
+
+        parsed = EmergencyBroadcast.parse_mesh_text(text)
+        if parsed is None:
+            logger.warning("Malformed emergency echo: %s", text)
+            return
+
+        emergency_type, message = parsed
+        logger.info(
+            "Emergency echo received from %s: type=%s message=%s",
+            node_id,
+            emergency_type,
+            message,
+        )
+
+        # Try to match to an active broadcast and mark it delivered
+        try:
+            from jenn_mesh.core.emergency_manager import EmergencyBroadcastManager
+
+            manager = EmergencyBroadcastManager(db=self.db)
+            broadcast = manager.find_broadcast_for_mesh_text(emergency_type)
+            if broadcast:
+                manager.mark_delivered(broadcast["id"])
+                logger.info(
+                    "Broadcast %d confirmed delivered via mesh echo from %s",
+                    broadcast["id"],
+                    node_id,
+                )
+            else:
+                logger.debug("Emergency echo from %s has no matching pending broadcast", node_id)
+        except Exception as e:
+            logger.error("Error processing emergency echo: %s", e)
+
+        if self._on_alert:
+            self._on_alert(f"emergency_echo:{emergency_type}:{node_id}")

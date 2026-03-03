@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, Optional
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA_SQL = """
 -- Device registry: every known radio in the fleet
@@ -169,6 +169,22 @@ CREATE TABLE IF NOT EXISTS mesh_heartbeats (
 );
 CREATE INDEX IF NOT EXISTS idx_heartbeat_node_time ON mesh_heartbeats(node_id, received_at DESC);
 
+-- Emergency broadcasts: operator-initiated alerts sent over mesh radio
+CREATE TABLE IF NOT EXISTS emergency_broadcasts (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    broadcast_type  TEXT NOT NULL,
+    message         TEXT NOT NULL,
+    sender          TEXT NOT NULL DEFAULT 'dashboard',
+    channel_index   INTEGER NOT NULL DEFAULT 3,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    confirmed       INTEGER NOT NULL DEFAULT 0,
+    mesh_received   INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    sent_at         TEXT,
+    delivered_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_emergency_status ON emergency_broadcasts(status, created_at DESC);
+
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version         INTEGER NOT NULL,
@@ -209,6 +225,7 @@ class MeshDatabase:
                     # v2 → v3: telemetry_history, device_baselines, firmware_compat
                     # v3 → v4: mesh_heartbeats table, devices.last_mesh_heartbeat,
                     #           devices.mesh_status
+                    # v4 → v5: emergency_broadcasts table (CREATE IF NOT EXISTS only)
                     if current_version < 4:
                         # Add new columns (safe: ALTER TABLE ADD COLUMN is idempotent-ish,
                         # but we guard with version check to avoid "duplicate column" errors)
@@ -806,3 +823,81 @@ class MeshDatabase:
                 (f"-{retention_days}",),
             )
             return cursor.rowcount
+
+    # --- Emergency broadcast methods ---
+
+    def create_emergency_broadcast(
+        self,
+        broadcast_type: str,
+        message: str,
+        sender: str = "dashboard",
+        channel_index: int = 3,
+    ) -> int:
+        """Create a new emergency broadcast record. Returns the broadcast ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO emergency_broadcasts
+                   (broadcast_type, message, sender, channel_index, status, confirmed)
+                   VALUES (?, ?, ?, ?, 'pending', 1)""",
+                (broadcast_type, message, sender, channel_index),
+            )
+            return cursor.lastrowid or 0
+
+    def update_broadcast_status(
+        self,
+        broadcast_id: int,
+        status: str,
+        *,
+        sent_at: Optional[str] = None,
+        delivered_at: Optional[str] = None,
+        mesh_received: Optional[bool] = None,
+    ) -> None:
+        """Update the status of an emergency broadcast."""
+        with self.connection() as conn:
+            updates = ["status = ?"]
+            values: list[object] = [status]
+
+            if sent_at is not None:
+                updates.append("sent_at = ?")
+                values.append(sent_at)
+            if delivered_at is not None:
+                updates.append("delivered_at = ?")
+                values.append(delivered_at)
+            if mesh_received is not None:
+                updates.append("mesh_received = ?")
+                values.append(1 if mesh_received else 0)
+
+            values.append(broadcast_id)
+            conn.execute(
+                f"UPDATE emergency_broadcasts SET {', '.join(updates)} WHERE id = ?",
+                values,
+            )
+
+    def get_broadcast(self, broadcast_id: int) -> Optional[dict]:
+        """Get a single emergency broadcast by ID."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM emergency_broadcasts WHERE id = ?",
+                (broadcast_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_broadcasts(self, limit: int = 50) -> list[dict]:
+        """List emergency broadcasts, most recent first."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM emergency_broadcasts ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_recent_broadcasts(self, minutes: int = 60) -> list[dict]:
+        """Get emergency broadcasts from the last N minutes."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM emergency_broadcasts
+                   WHERE created_at >= datetime('now', ? || ' minutes')
+                   ORDER BY created_at DESC""",
+                (f"-{minutes}",),
+            ).fetchall()
+            return [dict(r) for r in rows]

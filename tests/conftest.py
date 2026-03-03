@@ -149,6 +149,22 @@ def populated_db(db: MeshDatabase) -> MeshDatabase:
     )
     db.upsert_device("!ccc33333", mesh_status="reachable", last_mesh_heartbeat=hb_stale_ts)
 
+    # Emergency broadcast seed data (1 delivered, 1 pending)
+    db.create_emergency_broadcast(
+        broadcast_type="evacuation",
+        message="Building 3 fire alarm. Evacuate immediately.",
+        sender="operator-1",
+        channel_index=3,
+    )
+    db.update_broadcast_status(1, "delivered", delivered_at=hb_recent_ts)
+
+    db.create_emergency_broadcast(
+        broadcast_type="network_down",
+        message="Cloud connectivity lost. Mesh-only mode.",
+        sender="dashboard",
+        channel_index=3,
+    )
+
     # Firmware compatibility matrix seed data
     db.upsert_firmware_compat("heltec_v3", "2.5.6", "COMPATIBLE")
     db.upsert_firmware_compat("heltec_v3", "2.5.0", "COMPATIBLE")

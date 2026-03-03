@@ -61,7 +61,22 @@ async def health_check(request: Request) -> dict:
     else:
         components["mesh_heartbeats"] = {"status": "unavailable"}
 
-    # 5. Uptime
+    # 5. Emergency broadcasts
+    if db is not None:
+        try:
+            recent_eb = db.get_recent_broadcasts(minutes=60)
+            last_broadcast = recent_eb[0]["created_at"] if recent_eb else None
+            components["emergency_broadcasts"] = {
+                "status": "healthy",
+                "recent_count": len(recent_eb),
+                "last_broadcast_time": last_broadcast,
+            }
+        except Exception as exc:
+            components["emergency_broadcasts"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["emergency_broadcasts"] = {"status": "unavailable"}
+
+    # 6. Uptime
     startup_time = getattr(request.app.state, "startup_time", None)
     if startup_time is not None:
         uptime = (datetime.now(timezone.utc) - startup_time).total_seconds()

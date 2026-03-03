@@ -59,6 +59,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             logger.exception("Workbench init failed — workbench features unavailable")
 
+    # Best-effort emergency manager init
+    if not hasattr(app.state, "emergency_manager") and getattr(app.state, "db", None) is not None:
+        try:
+            from jenn_mesh.core.emergency_manager import EmergencyBroadcastManager
+
+            app.state.emergency_manager = EmergencyBroadcastManager(db=app.state.db)
+        except Exception:
+            logger.exception("Emergency manager init failed — emergency features unavailable")
+
     if not hasattr(app.state, "startup_time"):
         app.state.startup_time = datetime.now(timezone.utc)
 

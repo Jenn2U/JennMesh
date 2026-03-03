@@ -83,6 +83,12 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
             app.state.bulk_push = BulkPushManager(db)
         except Exception:
             pass  # graceful degradation — workbench features unavailable
+        try:
+            from jenn_mesh.core.emergency_manager import EmergencyBroadcastManager
+
+            app.state.emergency_manager = EmergencyBroadcastManager(db=db)
+        except Exception:
+            pass  # graceful degradation — emergency features unavailable
         app.state.startup_time = datetime.now(timezone.utc)
 
     # --- Error handlers ---
@@ -114,6 +120,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.provision import router as provision_router
     from jenn_mesh.dashboard.routes.scoring import router as scoring_router
     from jenn_mesh.dashboard.routes.topology import router as topology_router
+    from jenn_mesh.dashboard.routes.emergency import router as emergency_router
     from jenn_mesh.dashboard.routes.heartbeat import router as heartbeat_router
     from jenn_mesh.dashboard.routes.workbench import router as workbench_router
 
@@ -130,6 +137,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(baselines_router, prefix="/api/v1")
     app.include_router(scoring_router, prefix="/api/v1")
     app.include_router(workbench_router, prefix="/api/v1")
+    app.include_router(emergency_router, prefix="/api/v1")
 
     # Dashboard HTML page
     @app.get("/")

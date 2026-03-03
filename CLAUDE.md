@@ -7,7 +7,7 @@ JennMesh is the centralized Meshtastic LoRa radio fleet management service for t
 **Version**: 0.2.0
 **Language**: Python 3.11+
 **Type**: Standalone mesh management service with web dashboard + agent daemon + CLI tools
-**Tests**: 395 (pytest) — target 80%+
+**Tests**: 460 (pytest) — target 80%+
 
 ## Architecture
 
@@ -42,12 +42,14 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/models/channel.py` | ChannelConfig, PSKManager |
 | `src/jenn_mesh/models/fleet.py` | FleetHealth, NodeStatus, Alert, AlertType, INTERNET_DOWN |
 | `src/jenn_mesh/models/heartbeat.py` | MeshHeartbeat, ServiceStatus, HeartbeatSummary |
+| `src/jenn_mesh/models/emergency.py` | EmergencyType, BroadcastStatus, EmergencyBroadcast, mesh text format |
 | `src/jenn_mesh/models/location.py` | GPSPosition, LostNodeQuery, ProximityResult |
 | `src/jenn_mesh/core/registry.py` | SQLite WAL device registry |
 | `src/jenn_mesh/core/config_manager.py` | Golden config CRUD, drift detection |
 | `src/jenn_mesh/core/channel_manager.py` | PSK generation, channel distribution |
 | `src/jenn_mesh/core/mqtt_subscriber.py` | Subscribes to mesh broker, ingests telemetry + heartbeats |
 | `src/jenn_mesh/core/heartbeat_receiver.py` | Parses HEARTBEAT\| text messages, stores in DB, stale detection |
+| `src/jenn_mesh/core/emergency_manager.py` | EmergencyBroadcastManager — validate, store, MQTT command, delivery confirmation |
 | `src/jenn_mesh/agent/radio_bridge.py` | Serial/TCP connection to local Meshtastic radio |
 | `src/jenn_mesh/agent/remote_admin.py` | PKC remote admin commands via mesh |
 | `src/jenn_mesh/agent/heartbeat_sender.py` | Builds + sends periodic heartbeat text messages over LoRa |
@@ -61,13 +63,14 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/models/workbench.py` | Pydantic models for workbench + bulk push |
 | `src/jenn_mesh/dashboard/routes/workbench.py` | 9 API endpoints (workbench + bulk push) |
 | `src/jenn_mesh/dashboard/routes/heartbeat.py` | 3 API endpoints (per-device, recent, fleet mesh-status) |
+| `src/jenn_mesh/dashboard/routes/emergency.py` | 4 API endpoints (send broadcast, list, get, fleet status) |
 | `src/jenn_mesh/dashboard/app.py` | FastAPI dashboard application factory |
 | `src/jenn_mesh/dashboard/middleware.py` | Security headers, request logging, rate limiting, CORS |
 | `src/jenn_mesh/dashboard/error_handlers.py` | Global exception handlers (HTTP, validation, unhandled) |
 | `src/jenn_mesh/dashboard/lifespan.py` | Application startup/shutdown lifecycle |
 | `src/jenn_mesh/dashboard/logging_config.py` | Rotating file + console logging configuration |
 | `src/jenn_mesh/cli.py` | CLI entry point with subcommands |
-| `src/jenn_mesh/db.py` | SQLite WAL schema (devices, positions, alerts, configs) |
+| `src/jenn_mesh/db.py` | SQLite WAL schema v5 (devices, positions, alerts, configs, heartbeats, emergency_broadcasts) |
 | `configs/*.yaml` | Golden Meshtastic config templates per device role |
 | `deploy/systemd/*.service` | 4 systemd unit files (broker, dashboard, agent, sentry) |
 | `deploy/scripts/install.sh` | 9-phase idempotent installer for ARM64 Linux |
@@ -116,12 +119,12 @@ The dashboard uses a layered middleware + error handling stack:
 - Unhandled Exception → 500 with `logger.exception()`, generic response
 
 ### Lifespan Management
-- `@asynccontextmanager` in `lifespan.py` — startup: logging, DB, WorkbenchManager, BulkPushManager, startup_time
+- `@asynccontextmanager` in `lifespan.py` — startup: logging, DB, WorkbenchManager, BulkPushManager, EmergencyBroadcastManager, startup_time
 - Graceful degradation: if DB init fails, dashboard runs degraded (health reports "degraded")
 - Test DB injection: `create_app(db=test_db)` sets state directly (httpx ASGITransport doesn't fire lifespan)
 
 ### Health Endpoint (`/health`)
-- Components: database (schema_version), workbench, bulk_push, mesh_heartbeats, uptime_seconds
+- Components: database (schema_version), workbench, bulk_push, mesh_heartbeats, emergency_broadcasts, uptime_seconds
 - Overall status: "healthy" or "degraded" (if any component fails)
 
 ### Logging
@@ -139,7 +142,7 @@ Edge nodes send periodic heartbeat text messages over LoRa radio so JennMesh can
 - Interval: 120 seconds (configurable via `--heartbeat-interval`)
 - Services: comma-separated `name:status` pairs (e.g., `edge:ok,mqtt:down`)
 
-### Database (Schema v4)
+### Database (Schema v4 → v5 adds emergency_broadcasts)
 - `mesh_heartbeats` table — stores every received heartbeat
 - `devices.mesh_status` — `"reachable"` | `"unreachable"` | `"unknown"`
 - `devices.last_mesh_heartbeat` — ISO timestamp of last heartbeat
@@ -159,6 +162,42 @@ Edge nodes send periodic heartbeat text messages over LoRa radio so JennMesh can
 
 ### Route Order Gotcha
 The heartbeat router must be registered **before** the fleet router in `app.py` because `/fleet/mesh-status` would otherwise match `/fleet/{node_id}` (FastAPI matches by registration order).
+
+## Emergency Broadcast System (MESH-026)
+
+Operators push critical alerts to all field radios over LoRa mesh when internet/cloud is down.
+
+### Architecture: Dashboard → MQTT → Agent → Mesh
+1. Dashboard API receives broadcast → validates → stores in DB → publishes JSON to MQTT command topic
+2. Agent subscribes to `jenn/mesh/command/emergency` → sends text via `RadioBridge.send_text(text, channel_index=3)`
+3. MQTT subscriber detects `[EMERGENCY:` prefix in mesh-relayed text → updates broadcast status to `delivered`
+
+### Wire Format
+`[EMERGENCY:{TYPE}] {message}` — human-readable on radio screens, machine-parseable by MQTT subscriber.
+
+### Emergency Types
+`evacuation`, `network_down`, `severe_weather`, `security_alert`, `all_clear`, `custom`
+
+### Broadcast Statuses
+`pending` → `sending` → `sent` → `delivered` | `failed`
+
+### Database (Schema v5)
+- `emergency_broadcasts` table — stores every broadcast with status tracking
+- `idx_emergency_status` index on `(status, created_at DESC)`
+- 5 DB methods: `create_emergency_broadcast`, `update_broadcast_status`, `get_broadcast`, `list_broadcasts`, `get_recent_broadcasts`
+
+### API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/emergency/broadcast` | Send broadcast (requires `confirmed: true`) |
+| `GET` | `/api/v1/emergency/broadcasts` | List broadcast history |
+| `GET` | `/api/v1/emergency/broadcast/{id}` | Get specific broadcast |
+| `GET` | `/api/v1/emergency/status` | Fleet emergency status |
+
+### Safety
+- `confirmed: true` required on POST — returns 400 if missing or false (irreversible action)
+- Channel 3 (Emergency) — already configured on all devices via golden config templates
+- All radios display emergency messages on their screens
 
 ## CLI Commands
 

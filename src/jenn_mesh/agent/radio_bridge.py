@@ -96,15 +96,29 @@ class RadioBridge:
         if packet_type in self._callbacks:
             self._callbacks[packet_type].append(callback)
 
-    def send_text(self, text: str, destination: Optional[str] = None) -> bool:
-        """Send a text message to the mesh or a specific node."""
+    def send_text(
+        self,
+        text: str,
+        destination: Optional[str] = None,
+        channel_index: Optional[int] = None,
+    ) -> bool:
+        """Send a text message to the mesh or a specific node.
+
+        Args:
+            text: Message to send (max 256 bytes for LoRa).
+            destination: Target node ID, or None for broadcast to all.
+            channel_index: Meshtastic channel (0-7) to send on, or None for default.
+                          Channel 3 is the Emergency channel.
+        """
         if not self._interface:
             return False
         try:
+            kwargs: dict[str, Any] = {}
             if destination:
-                self._interface.sendText(text, destinationId=destination)
-            else:
-                self._interface.sendText(text)
+                kwargs["destinationId"] = destination
+            if channel_index is not None:
+                kwargs["channelIndex"] = channel_index
+            self._interface.sendText(text, **kwargs)
             return True
         except Exception as e:
             logger.error("Failed to send text: %s", e)
