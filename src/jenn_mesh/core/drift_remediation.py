@@ -308,11 +308,7 @@ class DriftRemediationManager:
         template_hash: str,
         operator: str,
     ) -> None:
-        """Handle successful remediation — update state, resolve alerts, audit log.
-
-        TODO: User contribution — implement the post-remediation state update.
-        See plan for trade-offs to consider.
-        """
+        """Handle successful remediation — update state, resolve alerts, audit log."""
         # Update device config_hash to match the pushed template
         with self._db.connection() as conn:
             conn.execute(
