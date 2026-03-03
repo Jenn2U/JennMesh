@@ -504,14 +504,17 @@ agricultural monitoring, wildfire smoke detection.
 Dashboard: environmental data overlay on Fleet Map.
 API: `GET /api/v1/telemetry/environment` with spatial/temporal filters.
 
-### MESH-040: Over-the-Air Config Rollback
-**Priority**: P2 | **Effort**: M | **Status**: Backlog
+### MESH-040: Over-the-Air Config Rollback ✅
+**Priority**: P2 | **Effort**: M | **Status**: Done
 Before every config push, snapshot the device's current config.
 If a config push breaks a node (goes offline within N minutes of push):
   Auto-rollback to last known good config via remote admin.
   Log rollback event. Alert operator.
   Store config history per device in `config_snapshots` table.
 **Safety net**: prevents bricking a device with a bad config push.
+**Implemented**: Schema v10 (`config_snapshots` table), `ConfigRollbackManager`,
+  4 API endpoints (`/config-rollback/*`), MeshWatchdog 9th check (`post_push_failures`),
+  integrated into BulkPushManager + DriftRemediationManager. 52 new tests (852 total).
 
 ### MESH-041: Radio Audit Trail Enhancement
 **Priority**: P3 | **Effort**: S | **Status**: Backlog

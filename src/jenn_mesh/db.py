@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator, Optional
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 SCHEMA_SQL = """
 -- Device registry: every known radio in the fleet
@@ -279,6 +279,27 @@ CREATE TABLE IF NOT EXISTS watchdog_runs (
 CREATE INDEX IF NOT EXISTS idx_watchdog_runs_check
     ON watchdog_runs(check_name, started_at DESC);
 
+-- Config snapshots: pre-push config capture for OTA rollback
+CREATE TABLE IF NOT EXISTS config_snapshots (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id           TEXT NOT NULL,
+    push_source       TEXT NOT NULL,
+    yaml_before       TEXT,
+    yaml_after        TEXT,
+    status            TEXT NOT NULL DEFAULT 'active',
+    monitoring_until  TEXT,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    push_completed_at TEXT,
+    rolled_back_at    TEXT,
+    confirmed_at      TEXT,
+    error             TEXT,
+    FOREIGN KEY (node_id) REFERENCES devices(node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_config_snapshots_node
+    ON config_snapshots(node_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_config_snapshots_status
+    ON config_snapshots(status);
+
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version         INTEGER NOT NULL,
@@ -324,6 +345,7 @@ class MeshDatabase:
                     # v6 → v7: config_queue table (CREATE IF NOT EXISTS only)
                     # v7 → v8: failover_events + failover_compensations (CREATE IF NOT EXISTS only)
                     # v8 → v9: watchdog_runs table (CREATE IF NOT EXISTS only)
+                    # v9 → v10: config_snapshots table (CREATE IF NOT EXISTS only)
                     if current_version < 4:
                         # Add new columns (safe: ALTER TABLE ADD COLUMN is idempotent-ish,
                         # but we guard with version check to avoid "duplicate column" errors)
@@ -1448,4 +1470,81 @@ class MeshDatabase:
                        ORDER BY started_at DESC LIMIT ?""",
                     (limit,),
                 ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ── Config snapshots (OTA rollback) ────────────────────────────────
+
+    def create_config_snapshot(
+        self,
+        node_id: str,
+        push_source: str,
+        yaml_before: Optional[str] = None,
+    ) -> int:
+        """Create a config snapshot before a push. Returns the snapshot ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO config_snapshots (node_id, push_source, yaml_before)
+                   VALUES (?, ?, ?)""",
+                (node_id, push_source, yaml_before),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def update_config_snapshot(self, snapshot_id: int, **kwargs: object) -> None:
+        """Update config snapshot fields by ID.
+
+        Accepts any column name as keyword argument (status, yaml_after,
+        push_completed_at, monitoring_until, rolled_back_at, confirmed_at, error).
+        """
+        if not kwargs:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in kwargs)
+        values = list(kwargs.values()) + [snapshot_id]
+        with self.connection() as conn:
+            conn.execute(
+                f"UPDATE config_snapshots SET {set_clause} WHERE id = ?",
+                values,
+            )
+
+    def get_config_snapshot(self, snapshot_id: int) -> Optional[dict]:
+        """Fetch a single config snapshot by ID."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM config_snapshots WHERE id = ?",
+                (snapshot_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_snapshots_for_node(self, node_id: str, limit: int = 20) -> list[dict]:
+        """Fetch recent config snapshots for a specific node."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM config_snapshots
+                   WHERE node_id = ?
+                   ORDER BY created_at DESC LIMIT ?""",
+                (node_id, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_monitoring_snapshots(self) -> list[dict]:
+        """Fetch all snapshots in 'monitoring' status.
+
+        Returns every snapshot where status='monitoring' regardless of
+        whether the monitoring window has expired.  The caller
+        (``ConfigRollbackManager._should_rollback``) decides whether to
+        wait, confirm, or rollback based on the window.
+        """
+        with self.connection() as conn:
+            rows = conn.execute("""SELECT * FROM config_snapshots
+                   WHERE status = 'monitoring'
+                   ORDER BY push_completed_at ASC""").fetchall()
+            return [dict(r) for r in rows]
+
+    def get_recent_snapshots(self, limit: int = 50) -> list[dict]:
+        """Fetch the most recent config snapshots across all nodes."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM config_snapshots
+                   ORDER BY created_at DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
             return [dict(r) for r in rows]

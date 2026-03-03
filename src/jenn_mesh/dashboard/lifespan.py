@@ -61,6 +61,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             logger.exception("Config queue init failed — queue features unavailable")
 
+    # Best-effort config rollback manager init (before bulk_push and drift so they can use it)
+    if (
+        not hasattr(app.state, "config_rollback_manager")
+        and getattr(app.state, "db", None) is not None
+    ):
+        try:
+            from jenn_mesh.core.config_rollback import ConfigRollbackManager
+
+            app.state.config_rollback_manager = ConfigRollbackManager(db=app.state.db)
+        except Exception:
+            logger.exception("Config rollback init failed — rollback features unavailable")
+
     # Best-effort workbench init (degrade gracefully if DB unavailable)
     if not hasattr(app.state, "workbench") and getattr(app.state, "db", None) is not None:
         try:
@@ -68,9 +80,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             from jenn_mesh.core.workbench_manager import WorkbenchManager
 
             app.state.workbench = WorkbenchManager(app.state.db)
-            # Wire config queue into bulk push for automatic retry on failure
             config_queue = getattr(app.state, "config_queue_manager", None)
-            app.state.bulk_push = BulkPushManager(app.state.db, config_queue=config_queue)
+            rollback_mgr = getattr(app.state, "config_rollback_manager", None)
+            app.state.bulk_push = BulkPushManager(
+                app.state.db, config_queue=config_queue, rollback_manager=rollback_mgr
+            )
         except Exception:
             logger.exception("Workbench init failed — workbench features unavailable")
 
@@ -101,8 +115,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             from jenn_mesh.core.drift_remediation import DriftRemediationManager
 
             config_queue = getattr(app.state, "config_queue_manager", None)
+            rollback_mgr = getattr(app.state, "config_rollback_manager", None)
             app.state.drift_remediation_manager = DriftRemediationManager(
-                db=app.state.db, config_queue=config_queue
+                db=app.state.db, config_queue=config_queue, rollback_manager=rollback_mgr
             )
         except Exception:
             logger.exception("Drift remediation init failed — remediation features unavailable")

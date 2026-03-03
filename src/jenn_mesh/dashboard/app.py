@@ -82,12 +82,21 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
         except Exception:
             pass  # graceful degradation — config queue features unavailable
         try:
+            from jenn_mesh.core.config_rollback import ConfigRollbackManager
+
+            app.state.config_rollback_manager = ConfigRollbackManager(db=db)
+        except Exception:
+            pass  # graceful degradation — config rollback features unavailable
+        try:
             from jenn_mesh.core.bulk_push import BulkPushManager
             from jenn_mesh.core.workbench_manager import WorkbenchManager
 
             app.state.workbench = WorkbenchManager(db)
             config_queue = getattr(app.state, "config_queue_manager", None)
-            app.state.bulk_push = BulkPushManager(db, config_queue=config_queue)
+            rollback_mgr = getattr(app.state, "config_rollback_manager", None)
+            app.state.bulk_push = BulkPushManager(
+                db, config_queue=config_queue, rollback_manager=rollback_mgr
+            )
         except Exception:
             pass  # graceful degradation — workbench features unavailable
         try:
@@ -106,8 +115,9 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
             from jenn_mesh.core.drift_remediation import DriftRemediationManager
 
             config_queue = getattr(app.state, "config_queue_manager", None)
+            rollback_mgr = getattr(app.state, "config_rollback_manager", None)
             app.state.drift_remediation_manager = DriftRemediationManager(
-                db=db, config_queue=config_queue
+                db=db, config_queue=config_queue, rollback_manager=rollback_mgr
             )
         except Exception:
             pass  # graceful degradation — drift remediation features unavailable
@@ -161,6 +171,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.workbench import router as workbench_router
     from jenn_mesh.dashboard.routes.failover import router as failover_router
     from jenn_mesh.dashboard.routes.watchdog import router as watchdog_router
+    from jenn_mesh.dashboard.routes.config_rollback import router as config_rollback_router
 
     app.include_router(health_router)
     # Heartbeat router before fleet router — /fleet/mesh-status must match
@@ -180,6 +191,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(config_queue_router, prefix="/api/v1")
     app.include_router(failover_router, prefix="/api/v1")
     app.include_router(watchdog_router, prefix="/api/v1")
+    app.include_router(config_rollback_router, prefix="/api/v1")
 
     # Dashboard HTML page
     @app.get("/")

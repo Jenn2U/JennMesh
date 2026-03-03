@@ -156,7 +156,22 @@ async def health_check(request: Request) -> dict:
     else:
         components["mesh_watchdog"] = {"status": "unavailable"}
 
-    # 11. Uptime
+    # 11. Config rollback
+    rb = getattr(request.app.state, "config_rollback_manager", None)
+    if rb is not None:
+        try:
+            rb_status = rb.get_rollback_status()
+            components["config_rollback"] = {
+                "status": "healthy",
+                "monitoring_count": rb_status["monitoring_count"],
+                "recent_snapshot_count": rb_status["recent_snapshot_count"],
+            }
+        except Exception as exc:
+            components["config_rollback"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["config_rollback"] = {"status": "unavailable"}
+
+    # 12. Uptime
     startup_time = getattr(request.app.state, "startup_time", None)
     if startup_time is not None:
         uptime = (datetime.now(timezone.utc) - startup_time).total_seconds()

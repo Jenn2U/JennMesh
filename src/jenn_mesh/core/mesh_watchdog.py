@@ -33,7 +33,7 @@ LOOP_SLEEP_SECONDS = 60
 
 
 class MeshWatchdog:
-    """Periodically invokes 8 fleet-health checks and logs results.
+    """Periodically invokes 9 fleet-health checks and logs results.
 
     Each check wraps an existing manager method, records the run in the
     ``watchdog_runs`` DB table, and optionally auto-creates / auto-resolves
@@ -55,6 +55,7 @@ class MeshWatchdog:
         "topology_spof": 600,  # 10 min
         "failover_recovery": 300,  # 5 min
         "baseline_deviation": 600,  # 10 min
+        "post_push_failures": 120,  # 2 min
     }
 
     DEFAULT_THRESHOLDS: dict[str, Any] = {
@@ -97,6 +98,7 @@ class MeshWatchdog:
             "topology_spof": self._check_topology_spof,
             "failover_recovery": self._check_failover_recovery,
             "baseline_deviation": self._check_baseline_deviation,
+            "post_push_failures": self._check_post_push_failures,
         }
 
     # ── Public API ────────────────────────────────────────────────────
@@ -357,6 +359,13 @@ class MeshWatchdog:
             "new_alerts": new_alerts,
             "auto_resolved": resolved,
         }
+
+    def _check_post_push_failures(self) -> dict:
+        """Check if any config-pushed nodes have gone offline (auto-rollback)."""
+        from jenn_mesh.core.config_rollback import ConfigRollbackManager
+
+        manager = ConfigRollbackManager(self.db)
+        return manager.check_post_push_failures()
 
 
 # ── Async loop (started by lifespan) ─────────────────────────────────

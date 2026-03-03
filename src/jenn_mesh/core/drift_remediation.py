@@ -31,11 +31,13 @@ class DriftRemediationManager:
         configs_dir: Optional[Path] = None,
         admin_port: str = "auto",
         config_queue: "Optional[object]" = None,
+        rollback_manager: Optional[object] = None,
     ):
         self._db = db
         self._config_manager = ConfigManager(db, configs_dir)
         self._admin_port = admin_port
         self._config_queue = config_queue  # Optional ConfigQueueManager
+        self._rollback_manager = rollback_manager  # Optional ConfigRollbackManager
 
     def preview_remediation(self, node_id: str) -> dict:
         """Get remediation preview for a drifted device.
@@ -117,6 +119,16 @@ class DriftRemediationManager:
 
         template_hash = ConfigHash.compute(template_yaml)
 
+        # Snapshot before push (if rollback manager available)
+        snapshot_id = None
+        if self._rollback_manager is not None:
+            try:
+                snapshot_id = self._rollback_manager.snapshot_before_push(  # type: ignore[union-attr]  # noqa: E501
+                    node_id, "drift_remediation"
+                )
+            except Exception as snap_err:
+                logger.warning("Pre-push snapshot failed for %s: %s", node_id, snap_err)
+
         # Write YAML to temp file for RemoteAdmin
         tmp_path = None
         try:
@@ -126,6 +138,20 @@ class DriftRemediationManager:
 
             admin = RemoteAdmin(port=self._admin_port)
             result = admin.apply_remote_config(node_id, tmp_path)
+
+            # Update rollback snapshot status
+            if snapshot_id and self._rollback_manager:
+                try:
+                    if result.success:
+                        self._rollback_manager.mark_push_completed(  # type: ignore[union-attr]
+                            snapshot_id, template_yaml
+                        )
+                    else:
+                        self._rollback_manager.mark_push_failed(  # type: ignore[union-attr]
+                            snapshot_id, result.error or "Unknown error"
+                        )
+                except Exception as rb_err:
+                    logger.warning("Rollback status update failed: %s", rb_err)
 
             if result.success:
                 self._handle_success(node_id, template_role, template_hash, operator)

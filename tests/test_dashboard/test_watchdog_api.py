@@ -56,6 +56,7 @@ class TestStatusEndpoint:
             "topology_spof",
             "failover_recovery",
             "baseline_deviation",
+            "post_push_failures",
         }
         assert set(data["checks"].keys()) == expected_checks
 
@@ -162,4 +163,4 @@ class TestHealthIncludesWatchdog:
         assert "mesh_watchdog" in data["components"]
         assert data["components"]["mesh_watchdog"]["status"] == "healthy"
         assert data["components"]["mesh_watchdog"]["total_cycles"] == 0
-        assert data["components"]["mesh_watchdog"]["enabled_checks"] == 8
+        assert data["components"]["mesh_watchdog"]["enabled_checks"] == 9

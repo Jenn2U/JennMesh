@@ -27,6 +27,9 @@ class AlertType(str, Enum):
     FAILOVER_ACTIVATED = "failover_activated"
     FAILOVER_REVERTED = "failover_reverted"
     FAILOVER_REVERT_FAILED = "failover_revert_failed"
+    CONFIG_ROLLBACK_TRIGGERED = "config_rollback_triggered"
+    CONFIG_ROLLBACK_COMPLETED = "config_rollback_completed"
+    CONFIG_ROLLBACK_FAILED = "config_rollback_failed"
 
 
 class AlertSeverity(str, Enum):
@@ -70,6 +73,9 @@ ALERT_SEVERITY_MAP: dict[AlertType, AlertSeverity] = {
     AlertType.FAILOVER_ACTIVATED: AlertSeverity.WARNING,
     AlertType.FAILOVER_REVERTED: AlertSeverity.INFO,
     AlertType.FAILOVER_REVERT_FAILED: AlertSeverity.CRITICAL,
+    AlertType.CONFIG_ROLLBACK_TRIGGERED: AlertSeverity.WARNING,
+    AlertType.CONFIG_ROLLBACK_COMPLETED: AlertSeverity.INFO,
+    AlertType.CONFIG_ROLLBACK_FAILED: AlertSeverity.CRITICAL,
 }
 
 

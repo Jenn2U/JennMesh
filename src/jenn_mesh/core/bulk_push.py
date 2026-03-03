@@ -38,6 +38,7 @@ class BulkPushManager:
         configs_dir: Optional[Path] = None,
         admin_port: str = "auto",
         config_queue: Optional[object] = None,
+        rollback_manager: Optional[object] = None,
     ):
         self._db = db
         if configs_dir is not None:
@@ -48,6 +49,7 @@ class BulkPushManager:
             self._configs_dir = CONFIGS_DIR
         self._admin_port = admin_port
         self._config_queue = config_queue
+        self._rollback_manager = rollback_manager
         self._pushes: dict[str, BulkPushProgress] = {}
         self._cancel_flags: dict[str, bool] = {}
         self._lock = threading.Lock()
@@ -190,9 +192,33 @@ class BulkPushManager:
                 progress.pushing += 1
                 progress.queued -= 1
 
+            # Snapshot before push (if rollback manager available)
+            snapshot_id = None
+            if self._rollback_manager is not None:
+                try:
+                    snapshot_id = self._rollback_manager.snapshot_before_push(  # type: ignore[union-attr]  # noqa: E501
+                        device.node_id, "bulk_push"
+                    )
+                except Exception as snap_err:
+                    logger.warning("Pre-push snapshot failed for %s: %s", device.node_id, snap_err)
+
             try:
                 result = admin.apply_remote_config(device.node_id, str(template_path))
                 completed_str = datetime.now(timezone.utc).isoformat()
+
+                # Update rollback snapshot status
+                if snapshot_id and self._rollback_manager:
+                    try:
+                        if result.success:
+                            self._rollback_manager.mark_push_completed(  # type: ignore[union-attr]
+                                snapshot_id, _yaml_content
+                            )
+                        else:
+                            self._rollback_manager.mark_push_failed(  # type: ignore[union-attr]
+                                snapshot_id, result.error or "Unknown error"
+                            )
+                    except Exception as rb_err:
+                        logger.warning("Rollback status update failed: %s", rb_err)
 
                 with self._lock:
                     device.completed_at = completed_str

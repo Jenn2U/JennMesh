@@ -76,7 +76,7 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/core/failover_manager.py` | FailoverManager: assess, execute, revert, cancel, check_recoveries |
 | `src/jenn_mesh/models/failover.py` | FailoverEvent, FailoverCompensation, ImpactAssessment models + enums |
 | `src/jenn_mesh/dashboard/routes/failover.py` | 7 API endpoints (assess, execute, revert, cancel, status, active, check-recoveries) |
-| `src/jenn_mesh/core/mesh_watchdog.py` | MeshWatchdog: 8-check periodic health monitor with auto-resolve + audit trail |
+| `src/jenn_mesh/core/mesh_watchdog.py` | MeshWatchdog: 9-check periodic health monitor with auto-resolve + audit trail |
 | `src/jenn_mesh/dashboard/routes/watchdog.py` | 3 API endpoints (status, history, trigger) |
 | `src/jenn_mesh/dashboard/app.py` | FastAPI dashboard application factory |
 | `src/jenn_mesh/dashboard/middleware.py` | Security headers, request logging, rate limiting, CORS |
@@ -84,7 +84,9 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/dashboard/lifespan.py` | Application startup/shutdown lifecycle |
 | `src/jenn_mesh/dashboard/logging_config.py` | Rotating file + console logging configuration |
 | `src/jenn_mesh/cli.py` | CLI entry point with subcommands |
-| `src/jenn_mesh/db.py` | SQLite WAL schema v9 (devices, positions, alerts, configs, heartbeats, emergency_broadcasts, recovery_commands, config_queue, failover_events, failover_compensations, watchdog_runs) |
+| `src/jenn_mesh/core/config_rollback.py` | OTA config rollback: snapshot → monitor → auto-rollback |
+| `src/jenn_mesh/dashboard/routes/config_rollback.py` | 4 API endpoints (snapshots, snapshot detail, manual rollback, status) |
+| `src/jenn_mesh/db.py` | SQLite WAL schema v10 (devices, positions, alerts, configs, heartbeats, emergency_broadcasts, recovery_commands, config_queue, failover_events, failover_compensations, watchdog_runs, config_snapshots) |
 | `configs/*.yaml` | Golden Meshtastic config templates per device role |
 | `deploy/systemd/*.service` | 4 systemd unit files (broker, dashboard, agent, sentry) |
 | `deploy/scripts/install.sh` | 9-phase idempotent installer for ARM64 Linux |
@@ -133,12 +135,12 @@ The dashboard uses a layered middleware + error handling stack:
 - Unhandled Exception → 500 with `logger.exception()`, generic response
 
 ### Lifespan Management
-- `@asynccontextmanager` in `lifespan.py` — startup: logging, DB, ConfigQueueManager, WorkbenchManager, BulkPushManager (wired to config queue), EmergencyBroadcastManager, RecoveryManager, DriftRemediationManager (wired to config queue), config queue retry loop, startup_time
+- `@asynccontextmanager` in `lifespan.py` — startup: logging, DB, ConfigQueueManager, ConfigRollbackManager, WorkbenchManager, BulkPushManager (wired to config queue + rollback), EmergencyBroadcastManager, RecoveryManager, DriftRemediationManager (wired to config queue + rollback), FailoverManager, MeshWatchdog, config queue retry loop, watchdog loop, startup_time
 - Graceful degradation: if DB init fails, dashboard runs degraded (health reports "degraded")
 - Test DB injection: `create_app(db=test_db)` sets state directly (httpx ASGITransport doesn't fire lifespan)
 
 ### Health Endpoint (`/health`)
-- Components: database (schema_version), workbench, bulk_push, mesh_heartbeats, emergency_broadcasts, recovery_commands, config_queue, drift_remediation, failover, uptime_seconds
+- Components: database (schema_version), workbench, bulk_push, mesh_heartbeats, emergency_broadcasts, recovery_commands, config_queue, drift_remediation, failover, mesh_watchdog, config_rollback, uptime_seconds
 - Overall status: "healthy" or "degraded" (if any component fails)
 
 ### Logging
@@ -156,7 +158,7 @@ Edge nodes send periodic heartbeat text messages over LoRa radio so JennMesh can
 - Interval: 120 seconds (configurable via `--heartbeat-interval`)
 - Services: comma-separated `name:status` pairs (e.g., `edge:ok,mqtt:down`)
 
-### Database (Schema v4 → v5 adds emergency_broadcasts, v5 → v6 adds recovery_commands, v6 → v7 adds config_queue, v7 → v8 adds failover_events + failover_compensations, v8 → v9 adds watchdog_runs)
+### Database (Schema v4 → v5 adds emergency_broadcasts, v5 → v6 adds recovery_commands, v6 → v7 adds config_queue, v7 → v8 adds failover_events + failover_compensations, v8 → v9 adds watchdog_runs, v9 → v10 adds config_snapshots)
 - `mesh_heartbeats` table — stores every received heartbeat
 - `devices.mesh_status` — `"reachable"` | `"unreachable"` | `"unknown"`
 - `devices.last_mesh_heartbeat` — ISO timestamp of last heartbeat
@@ -371,9 +373,9 @@ When a relay SPOF goes offline, FailoverManager assesses impact, identifies comp
 
 ## MESH-030: Mesh Watchdog
 
-Background asyncio task that periodically invokes 8 existing health checks on staggered intervals. No new detection logic — purely orchestration and auto-alert management.
+Background asyncio task that periodically invokes 9 health checks on staggered intervals. No new detection logic — purely orchestration and auto-alert management.
 
-### Checks (8 total)
+### Checks (9 total)
 | Check | Interval | Method | Auto-resolve |
 |-------|----------|--------|--------------|
 | offline_nodes | 2 min | DeviceRegistry.check_offline_nodes() | ✅ |
@@ -384,6 +386,7 @@ Background asyncio task that periodically invokes 8 existing health checks on st
 | topology_spof | 10 min | TopologyManager.find_single_points_of_failure() | — (informational) |
 | failover_recovery | 5 min | FailoverManager.check_recoveries() | — (built-in) |
 | baseline_deviation | 10 min | BaselineManager.check_fleet_deviations() | ✅ |
+| post_push_failures | 2 min | ConfigRollbackManager.check_post_push_failures() | ✅ (auto-rollback) |
 
 ### API Endpoints
 | Method | Path | Description |
@@ -401,6 +404,37 @@ Background asyncio task that periodically invokes 8 existing health checks on st
 - **Auto-resolve** — resolves alerts when conditions clear (battery recovers, node comes online, drift fixed)
 - **Env disable** — `MESH_WATCHDOG_ENABLED=false` to disable entirely
 - **Check isolation** — failure in one check does not affect others
+
+## MESH-040: OTA Config Rollback
+
+Safety net for config pushes — snapshot device config before push, monitor for post-push failures, auto-rollback if node goes offline.
+
+### Snapshot Lifecycle
+`active → monitoring → confirmed | rolled_back | rollback_failed` or `active → push_failed | snapshot_failed`
+
+### Integration Points
+- **BulkPushManager** — `snapshot_before_push()` before each device push, `mark_push_completed/failed()` after
+- **DriftRemediationManager** — same pattern in `remediate_device()`
+- **MeshWatchdog** — 9th check `post_push_failures` (2-min interval) calls `check_post_push_failures()`
+- **FailoverManager** — excluded (has its own `original_value`/`revert_failover()` mechanism)
+
+### API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/config-rollback/snapshots` | List recent snapshots (filter by node_id) |
+| `GET` | `/api/v1/config-rollback/snapshot/{id}` | Get snapshot details |
+| `POST` | `/api/v1/config-rollback/snapshot/{id}/rollback` | Manual rollback (requires `confirmed: true`) |
+| `GET` | `/api/v1/config-rollback/status` | System summary (monitoring count, breakdowns) |
+
+### Database (Schema v10)
+- `config_snapshots` table — 12 columns (node_id, push_source, yaml_before, yaml_after, status, monitoring_until, etc.)
+- 6 DB methods: create_config_snapshot, update_config_snapshot, get_config_snapshot, get_snapshots_for_node, get_monitoring_snapshots, get_recent_snapshots
+
+### Key Design
+- **Skip-if-recent**: Reuses snapshot if one exists from < 5 min ago for same node (avoids 30-120s mesh round-trip)
+- **Grace period monitoring**: Waits `monitoring_minutes` (default 10) before evaluating — config pushes trigger radio reboot
+- **Alert lifecycle**: TRIGGERED → COMPLETED or FAILED (3 new AlertType values)
+- **Optional injection**: `rollback_manager` parameter follows same pattern as `config_queue`
 
 ## CLI Commands
 

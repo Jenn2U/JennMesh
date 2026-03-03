@@ -84,12 +84,12 @@ class TestWatchdogRunsDB:
         runs = db.get_recent_watchdog_runs("offline_nodes", limit=3)
         assert len(runs) == 3
 
-    def test_schema_version_is_9(self, db: MeshDatabase) -> None:
+    def test_schema_version_is_10(self, db: MeshDatabase) -> None:
         with db.connection() as conn:
             row = conn.execute(
                 "SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1"
             ).fetchone()
-        assert row["version"] == 9
+        assert row["version"] == 10
 
 
 # ── Constructor / configuration ───────────────────────────────────────
