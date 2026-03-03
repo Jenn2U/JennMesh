@@ -372,7 +372,7 @@ If a relay node goes down (detected via offline alert + topology analysis):
 *See v0.4.0 section.*
 
 ### MESH-031: Edge Node Heartbeat via Mesh
-**Priority**: P1 | **Effort**: M | **Status**: Backlog
+**Priority**: P1 | **Effort**: M | **Status**: ✅ Done
 If an edge node's internet is down but its radio is up, the JennMesh agent sends
 a heartbeat via mesh text message: `HEARTBEAT|nodeId|uptime|services|battery`.
 JennMesh dashboard shows "reachable via mesh" status for edge nodes.
@@ -799,3 +799,11 @@ instead of sending all raw data to one gateway.
 **MESH-067 delivered (Physical Deployment)**: Full bare-metal deployment infrastructure for ARM64 Linux mesh appliances. 4 systemd services (broker, dashboard, agent, sentry sidecar). 9-phase idempotent install script following JennEdge's proven pattern. Udev rules for Meshtastic USB devices (CP2102, CH9102, FTDI) with auto-start. Mosquitto production config with password auth. Package release script, SSH deploy pipeline, health check, SQLite nightly backup (14-day retention), UFW firewall. 14 new deploy files. Operator guide in deploy/README.md.
 
 **v0.2.0 Release Summary**: 6 items shipped. MESH-017/018/019 (Ollama, Geofencing) deferred to v0.4.0 — priority reprioritization pulled P0 production hardening (MESH-047) into v0.3.0 instead. 296 tests, 90+ source files.
+
+### v0.3.0 — Hardening & Resilience (Sprint 5-6) — IN PROGRESS
+| ID | Title | Effort | Status |
+|----|-------|--------|--------|
+| MESH-047 | Production Readiness Hardening | XL | ✅ Done |
+| MESH-031 | Edge Node Heartbeat via Mesh | M | ✅ Done |
+
+**MESH-031 delivered**: Mesh heartbeat protocol (`HEARTBEAT|nodeId|uptime|services|battery|timestamp`, ~60-80 bytes, 120s interval). Schema v3→v4 migration (mesh_heartbeats table, 2 new devices columns). HeartbeatSender (agent side — build+send+interval gating via RadioBridge). HeartbeatReceiver (dashboard side — parse+store+stale detection). Registry intelligence: `INTERNET_DOWN` (warning) vs `NODE_OFFLINE` (critical) based on mesh reachability. 3 new API endpoints, fleet endpoint enrichment, health component. 65 new tests (395 total). 5 new source files, 10 modified.

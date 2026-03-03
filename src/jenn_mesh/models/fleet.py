@@ -20,6 +20,7 @@ class AlertType(str, Enum):
     POSITION_STALE = "position_stale"
     MQTT_DISCONNECTED = "mqtt_disconnected"
     BASELINE_DEVIATION = "baseline_deviation"
+    INTERNET_DOWN = "internet_down"
 
 
 class AlertSeverity(str, Enum):
@@ -56,6 +57,7 @@ ALERT_SEVERITY_MAP: dict[AlertType, AlertSeverity] = {
     AlertType.POSITION_STALE: AlertSeverity.INFO,
     AlertType.MQTT_DISCONNECTED: AlertSeverity.CRITICAL,
     AlertType.BASELINE_DEVIATION: AlertSeverity.WARNING,
+    AlertType.INTERNET_DOWN: AlertSeverity.WARNING,
 }
 
 
@@ -66,6 +68,7 @@ class NodeStatus(str, Enum):
     OFFLINE = "offline"
     DEGRADED = "degraded"
     UNKNOWN = "unknown"
+    REACHABLE_VIA_MESH = "reachable_via_mesh"
 
 
 class FleetHealth(BaseModel):
@@ -79,6 +82,9 @@ class FleetHealth(BaseModel):
     critical_alerts: int = Field(default=0)
     devices_needing_update: int = Field(default=0)
     devices_with_drift: int = Field(default=0)
+    mesh_reachable_count: int = Field(
+        default=0, description="Devices reachable via mesh radio but internet may be down"
+    )
     last_updated: datetime = Field(default_factory=datetime.utcnow)
 
     @property

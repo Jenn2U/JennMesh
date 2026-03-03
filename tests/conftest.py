@@ -125,6 +125,30 @@ def populated_db(db: MeshDatabase) -> MeshDatabase:
             timestamp=ts,
         )
 
+    # Mesh heartbeat data for !bbb22222 (reachable via mesh) and !ccc33333 (stale)
+    hb_recent_ts = (now - timedelta(minutes=1)).isoformat()
+    hb_stale_ts = (now - timedelta(minutes=15)).isoformat()
+
+    db.add_heartbeat(
+        node_id="!bbb22222",
+        uptime_seconds=3600,
+        services_json='[{"name":"edge","status":"ok"},{"name":"radio","status":"ok"}]',
+        battery=45,
+        rssi=-92,
+        snr=8.2,
+        timestamp=hb_recent_ts,
+    )
+    db.upsert_device("!bbb22222", mesh_status="reachable", last_mesh_heartbeat=hb_recent_ts)
+
+    db.add_heartbeat(
+        node_id="!ccc33333",
+        uptime_seconds=7200,
+        services_json='[{"name":"edge","status":"ok"},{"name":"mqtt","status":"down"}]',
+        battery=15,
+        timestamp=hb_stale_ts,
+    )
+    db.upsert_device("!ccc33333", mesh_status="reachable", last_mesh_heartbeat=hb_stale_ts)
+
     # Firmware compatibility matrix seed data
     db.upsert_firmware_compat("heltec_v3", "2.5.6", "COMPATIBLE")
     db.upsert_firmware_compat("heltec_v3", "2.5.0", "COMPATIBLE")

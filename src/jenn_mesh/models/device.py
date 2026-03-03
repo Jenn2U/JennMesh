@@ -99,6 +99,12 @@ class MeshDevice(BaseModel):
     associated_edge_node: Optional[str] = Field(
         default=None, description="JennEdge device_id this radio is paired with"
     )
+    last_mesh_heartbeat: Optional[datetime] = Field(
+        default=None, description="Last mesh radio heartbeat received"
+    )
+    mesh_status: str = Field(
+        default="unknown", description="Mesh reachability: reachable/unreachable/unknown"
+    )
 
     @property
     def display_name(self) -> str:

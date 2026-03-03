@@ -7,7 +7,7 @@ JennMesh is the centralized Meshtastic LoRa radio fleet management service for t
 **Version**: 0.2.0
 **Language**: Python 3.11+
 **Type**: Standalone mesh management service with web dashboard + agent daemon + CLI tools
-**Tests**: 330 (pytest) — target 80%+
+**Tests**: 395 (pytest) — target 80%+
 
 ## Architecture
 
@@ -40,14 +40,17 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 |------|---------|
 | `src/jenn_mesh/models/device.py` | MeshDevice, DeviceRole, FirmwareInfo, ConfigHash |
 | `src/jenn_mesh/models/channel.py` | ChannelConfig, PSKManager |
-| `src/jenn_mesh/models/fleet.py` | FleetHealth, NodeStatus, Alert, AlertType |
+| `src/jenn_mesh/models/fleet.py` | FleetHealth, NodeStatus, Alert, AlertType, INTERNET_DOWN |
+| `src/jenn_mesh/models/heartbeat.py` | MeshHeartbeat, ServiceStatus, HeartbeatSummary |
 | `src/jenn_mesh/models/location.py` | GPSPosition, LostNodeQuery, ProximityResult |
 | `src/jenn_mesh/core/registry.py` | SQLite WAL device registry |
 | `src/jenn_mesh/core/config_manager.py` | Golden config CRUD, drift detection |
 | `src/jenn_mesh/core/channel_manager.py` | PSK generation, channel distribution |
-| `src/jenn_mesh/core/mqtt_subscriber.py` | Subscribes to mesh broker, ingests telemetry |
+| `src/jenn_mesh/core/mqtt_subscriber.py` | Subscribes to mesh broker, ingests telemetry + heartbeats |
+| `src/jenn_mesh/core/heartbeat_receiver.py` | Parses HEARTBEAT\| text messages, stores in DB, stale detection |
 | `src/jenn_mesh/agent/radio_bridge.py` | Serial/TCP connection to local Meshtastic radio |
 | `src/jenn_mesh/agent/remote_admin.py` | PKC remote admin commands via mesh |
+| `src/jenn_mesh/agent/heartbeat_sender.py` | Builds + sends periodic heartbeat text messages over LoRa |
 | `src/jenn_mesh/provisioning/bench_flash.py` | USB detect + golden config flash |
 | `src/jenn_mesh/provisioning/security.py` | PKC admin key gen, Managed Mode setup |
 | `src/jenn_mesh/provisioning/firmware.py` | Firmware version tracking, update flagging |
@@ -57,6 +60,7 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/core/bulk_push.py` | Bulk push golden templates to fleet via RemoteAdmin |
 | `src/jenn_mesh/models/workbench.py` | Pydantic models for workbench + bulk push |
 | `src/jenn_mesh/dashboard/routes/workbench.py` | 9 API endpoints (workbench + bulk push) |
+| `src/jenn_mesh/dashboard/routes/heartbeat.py` | 3 API endpoints (per-device, recent, fleet mesh-status) |
 | `src/jenn_mesh/dashboard/app.py` | FastAPI dashboard application factory |
 | `src/jenn_mesh/dashboard/middleware.py` | Security headers, request logging, rate limiting, CORS |
 | `src/jenn_mesh/dashboard/error_handlers.py` | Global exception handlers (HTTP, validation, unhandled) |
@@ -117,13 +121,44 @@ The dashboard uses a layered middleware + error handling stack:
 - Test DB injection: `create_app(db=test_db)` sets state directly (httpx ASGITransport doesn't fire lifespan)
 
 ### Health Endpoint (`/health`)
-- Components: database (schema_version), workbench, bulk_push, uptime_seconds
+- Components: database (schema_version), workbench, bulk_push, mesh_heartbeats, uptime_seconds
 - Overall status: "healthy" or "degraded" (if any component fails)
 
 ### Logging
 - Rotating file handler: `/var/log/jenn-mesh/dashboard.log` (10MB × 5 backups, fallback to `./logs/`)
 - Console handler to stderr; plain text format (not JSON)
 - `configure_logging()` called during lifespan startup
+
+## Mesh Heartbeat Subsystem (MESH-031)
+
+Edge nodes send periodic heartbeat text messages over LoRa radio so JennMesh can differentiate "internet down but alive" from "truly dead" nodes.
+
+### Wire Protocol
+`HEARTBEAT|{nodeId}|{uptime_s}|{services}|{battery}|{timestamp}`
+- ~60-80 bytes (well under LoRa 256-byte limit)
+- Interval: 120 seconds (configurable via `--heartbeat-interval`)
+- Services: comma-separated `name:status` pairs (e.g., `edge:ok,mqtt:down`)
+
+### Database (Schema v4)
+- `mesh_heartbeats` table — stores every received heartbeat
+- `devices.mesh_status` — `"reachable"` | `"unreachable"` | `"unknown"`
+- `devices.last_mesh_heartbeat` — ISO timestamp of last heartbeat
+- Migration v3→v4 is idempotent (try/except on ALTER TABLE)
+
+### Alert Differentiation
+- **Node offline + no mesh heartbeat** → `NODE_OFFLINE` (critical)
+- **Node offline + mesh heartbeat alive** → `INTERNET_DOWN` (warning)
+- `DeviceRegistry.check_offline_nodes()` checks `mesh_status` before choosing alert type
+
+### API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/heartbeat/{node_id}` | Latest heartbeat + history |
+| `GET` | `/api/v1/heartbeat/recent/all?minutes=10` | All recent heartbeats |
+| `GET` | `/api/v1/fleet/mesh-status` | Fleet mesh reachability grouping |
+
+### Route Order Gotcha
+The heartbeat router must be registered **before** the fleet router in `app.py` because `/fleet/mesh-status` would otherwise match `/fleet/{node_id}` (FastAPI matches by registration order).
 
 ## CLI Commands
 

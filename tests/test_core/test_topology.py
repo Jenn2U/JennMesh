@@ -264,12 +264,14 @@ class TestDBTopologyEdgeMethods:
         assert len(edges) == 1
         assert edges[0]["from_node"] == "!c"
 
-    def test_schema_version_is_2(self, db: MeshDatabase):
+    def test_schema_version_is_current(self, db: MeshDatabase):
         with db.connection() as conn:
             row = conn.execute(
                 "SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1"
             ).fetchone()
-        assert row["version"] == 3
+        from jenn_mesh.db import SCHEMA_VERSION
+
+        assert row["version"] == SCHEMA_VERSION
 
     def test_topology_edges_table_exists(self, db: MeshDatabase):
         with db.connection() as conn:

@@ -44,6 +44,10 @@ async def list_fleet(request: Request) -> dict:
                 "last_seen": d.last_seen.isoformat() if d.last_seen else None,
                 "latitude": d.latitude,
                 "longitude": d.longitude,
+                "mesh_status": d.mesh_status,
+                "last_mesh_heartbeat": (
+                    d.last_mesh_heartbeat.isoformat() if d.last_mesh_heartbeat else None
+                ),
                 "health_score": score_map.get(d.node_id, (None, None))[0],
                 "health_grade": score_map.get(d.node_id, (None, None))[1],
             }
@@ -69,6 +73,7 @@ async def fleet_health(request: Request) -> dict:
         "critical_alerts": health.critical_alerts,
         "devices_needing_update": health.devices_needing_update,
         "devices_with_drift": health.devices_with_drift,
+        "mesh_reachable_count": health.mesh_reachable_count,
     }
 
 
@@ -102,6 +107,10 @@ async def get_device(request: Request, node_id: str) -> dict:
         "longitude": device.longitude,
         "altitude": device.altitude,
         "associated_edge_node": device.associated_edge_node,
+        "mesh_status": device.mesh_status,
+        "last_mesh_heartbeat": (
+            device.last_mesh_heartbeat.isoformat() if device.last_mesh_heartbeat else None
+        ),
     }
 
 

@@ -48,7 +48,20 @@ async def health_check(request: Request) -> dict:
     has_bulk_push = getattr(request.app.state, "bulk_push", None) is not None
     components["bulk_push"] = {"status": "healthy" if has_bulk_push else "unavailable"}
 
-    # 4. Uptime
+    # 4. Mesh heartbeats
+    if db is not None:
+        try:
+            recent_hb = db.get_recent_heartbeats(minutes=10)
+            components["mesh_heartbeats"] = {
+                "status": "healthy",
+                "recent_count": len(recent_hb),
+            }
+        except Exception as exc:
+            components["mesh_heartbeats"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["mesh_heartbeats"] = {"status": "unavailable"}
+
+    # 5. Uptime
     startup_time = getattr(request.app.state, "startup_time", None)
     if startup_time is not None:
         uptime = (datetime.now(timezone.utc) - startup_time).total_seconds()

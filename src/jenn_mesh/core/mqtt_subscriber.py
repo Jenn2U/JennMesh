@@ -45,6 +45,7 @@ class MQTTSubscriber:
         self._on_position_update: Optional[Callable] = None
         self._on_alert: Optional[Callable] = None
         self._on_topology_update: Optional[Callable] = None
+        self._on_heartbeat: Optional[Callable] = None
 
     def set_callbacks(
         self,
@@ -52,12 +53,14 @@ class MQTTSubscriber:
         on_position_update: Optional[Callable] = None,
         on_alert: Optional[Callable] = None,
         on_topology_update: Optional[Callable] = None,
+        on_heartbeat: Optional[Callable] = None,
     ) -> None:
         """Register optional callbacks for real-time event hooks."""
         self._on_device_update = on_device_update
         self._on_position_update = on_position_update
         self._on_alert = on_alert
         self._on_topology_update = on_topology_update
+        self._on_heartbeat = on_heartbeat
 
     def start(self) -> bool:
         """Connect to broker and start listening for mesh telemetry."""
@@ -134,6 +137,8 @@ class MQTTSubscriber:
                 self._handle_telemetry(node_id, payload)
             elif packet_type == "neighborinfo":
                 self._handle_neighborinfo(node_id, payload)
+            elif packet_type == "text":
+                self._handle_text(node_id, payload)
 
         except json.JSONDecodeError:
             logger.debug("Non-JSON MQTT payload on %s", msg.topic)
@@ -256,3 +261,21 @@ class MQTTSubscriber:
         logger.debug("NeighborInfo updated: %s reported %d neighbors", node_id, len(neighbors))
         if self._on_topology_update:
             self._on_topology_update(node_id)
+
+    def _handle_text(self, node_id: str, payload: dict) -> None:
+        """Process a text message — route heartbeats to HeartbeatReceiver."""
+        from jenn_mesh.core.heartbeat_receiver import HeartbeatReceiver
+
+        text = payload.get("text", "")
+        if not isinstance(text, str):
+            text = str(text)
+
+        if text.startswith("HEARTBEAT|"):
+            receiver = HeartbeatReceiver(self.db)
+            rssi = payload.get("rssi")
+            snr = payload.get("snr")
+            handled = receiver.handle_text_message(text, rssi=rssi, snr=snr)
+            if handled:
+                logger.debug("Heartbeat received via MQTT text: %s", node_id)
+                if self._on_heartbeat:
+                    self._on_heartbeat(node_id)

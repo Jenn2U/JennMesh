@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, Optional
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA_SQL = """
 -- Device registry: every known radio in the fleet
@@ -30,7 +30,9 @@ CREATE TABLE IF NOT EXISTS devices (
     altitude        REAL,
     last_seen       TEXT,
     registered_at   TEXT NOT NULL DEFAULT (datetime('now')),
-    associated_edge_node TEXT
+    associated_edge_node TEXT,
+    last_mesh_heartbeat TEXT,
+    mesh_status     TEXT NOT NULL DEFAULT 'unknown'
 );
 
 -- Position history: GPS reports over time (for tracking + locator)
@@ -152,6 +154,21 @@ CREATE TABLE IF NOT EXISTS firmware_compat (
 );
 CREATE INDEX IF NOT EXISTS idx_compat_hw ON firmware_compat(hw_model);
 
+-- Mesh heartbeats: edge node heartbeats received via LoRa radio text messages
+CREATE TABLE IF NOT EXISTS mesh_heartbeats (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id         TEXT NOT NULL,
+    uptime_seconds  INTEGER NOT NULL,
+    services        TEXT NOT NULL,
+    battery         INTEGER NOT NULL DEFAULT -1,
+    rssi            INTEGER,
+    snr             REAL,
+    timestamp       TEXT NOT NULL,
+    received_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (node_id) REFERENCES devices(node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_heartbeat_node_time ON mesh_heartbeats(node_id, received_at DESC);
+
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version         INTEGER NOT NULL,
@@ -190,6 +207,22 @@ class MeshDatabase:
                     # Migrations are idempotent (CREATE TABLE IF NOT EXISTS)
                     # v1 → v2: topology_edges table
                     # v2 → v3: telemetry_history, device_baselines, firmware_compat
+                    # v3 → v4: mesh_heartbeats table, devices.last_mesh_heartbeat,
+                    #           devices.mesh_status
+                    if current_version < 4:
+                        # Add new columns (safe: ALTER TABLE ADD COLUMN is idempotent-ish,
+                        # but we guard with version check to avoid "duplicate column" errors)
+                        try:
+                            conn.execute("ALTER TABLE devices ADD COLUMN last_mesh_heartbeat TEXT")
+                        except sqlite3.OperationalError:
+                            pass  # Column already exists
+                        try:
+                            conn.execute(
+                                "ALTER TABLE devices ADD COLUMN mesh_status"
+                                " TEXT NOT NULL DEFAULT 'unknown'"
+                            )
+                        except sqlite3.OperationalError:
+                            pass  # Column already exists
                     conn.execute(
                         "INSERT INTO schema_version (version) VALUES (?)",
                         (SCHEMA_VERSION,),
@@ -227,6 +260,8 @@ class MeshDatabase:
         altitude: Optional[float] = None,
         last_seen: Optional[str] = None,
         associated_edge_node: Optional[str] = None,
+        last_mesh_heartbeat: Optional[str] = None,
+        mesh_status: Optional[str] = None,
     ) -> None:
         """Insert or update a device record. Only non-None fields are updated."""
         with self.connection() as conn:
@@ -240,8 +275,9 @@ class MeshDatabase:
                     """INSERT INTO devices (node_id, long_name, short_name, role,
                        hw_model, firmware_version, battery_level, voltage,
                        signal_snr, signal_rssi, latitude, longitude, altitude,
-                       last_seen, associated_edge_node)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       last_seen, associated_edge_node,
+                       last_mesh_heartbeat, mesh_status)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         node_id,
                         long_name or "",
@@ -258,6 +294,8 @@ class MeshDatabase:
                         altitude,
                         last_seen,
                         associated_edge_node,
+                        last_mesh_heartbeat,
+                        mesh_status or "unknown",
                     ),
                 )
             else:
@@ -278,6 +316,8 @@ class MeshDatabase:
                     "altitude": altitude,
                     "last_seen": last_seen,
                     "associated_edge_node": associated_edge_node,
+                    "last_mesh_heartbeat": last_mesh_heartbeat,
+                    "mesh_status": mesh_status,
                 }
                 for field, value in field_map.items():
                     if value is not None:
@@ -696,3 +736,73 @@ class MeshDatabase:
                 )
                 count += 1
         return count
+
+    # --- Mesh heartbeat methods ---
+
+    def add_heartbeat(
+        self,
+        node_id: str,
+        uptime_seconds: int,
+        services_json: str,
+        battery: int = -1,
+        rssi: Optional[int] = None,
+        snr: Optional[float] = None,
+        timestamp: Optional[str] = None,
+    ) -> None:
+        """Store a mesh heartbeat and update the device's mesh status."""
+        with self.connection() as conn:
+            conn.execute(
+                """INSERT INTO mesh_heartbeats
+                   (node_id, uptime_seconds, services, battery, rssi, snr, timestamp)
+                   VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))""",
+                (node_id, uptime_seconds, services_json, battery, rssi, snr, timestamp),
+            )
+            # Update the device's mesh reachability
+            conn.execute(
+                """UPDATE devices
+                   SET last_mesh_heartbeat = COALESCE(?, datetime('now')),
+                       mesh_status = 'reachable'
+                   WHERE node_id = ?""",
+                (timestamp, node_id),
+            )
+
+    def get_latest_heartbeat(self, node_id: str) -> Optional[dict]:
+        """Get the most recent heartbeat for a device."""
+        with self.connection() as conn:
+            row = conn.execute(
+                """SELECT * FROM mesh_heartbeats WHERE node_id = ?
+                   ORDER BY received_at DESC LIMIT 1""",
+                (node_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_recent_heartbeats(self, minutes: int = 10) -> list[dict]:
+        """Get all heartbeats received in the last N minutes."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM mesh_heartbeats
+                   WHERE received_at >= datetime('now', ? || ' minutes')
+                   ORDER BY received_at DESC""",
+                (f"-{minutes}",),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_heartbeat_history(self, node_id: str, limit: int = 50) -> list[dict]:
+        """Get heartbeat history for a device, most recent first."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM mesh_heartbeats WHERE node_id = ?
+                   ORDER BY received_at DESC LIMIT ?""",
+                (node_id, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def prune_old_heartbeats(self, retention_days: int = 7) -> int:
+        """Delete heartbeat records older than retention_days. Returns count deleted."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """DELETE FROM mesh_heartbeats
+                   WHERE received_at < datetime('now', ? || ' days')""",
+                (f"-{retention_days}",),
+            )
+            return cursor.rowcount

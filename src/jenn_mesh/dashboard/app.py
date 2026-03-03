@@ -114,9 +114,13 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.provision import router as provision_router
     from jenn_mesh.dashboard.routes.scoring import router as scoring_router
     from jenn_mesh.dashboard.routes.topology import router as topology_router
+    from jenn_mesh.dashboard.routes.heartbeat import router as heartbeat_router
     from jenn_mesh.dashboard.routes.workbench import router as workbench_router
 
     app.include_router(health_router)
+    # Heartbeat router before fleet router — /fleet/mesh-status must match
+    # before /fleet/{node_id} (FastAPI matches routes in registration order)
+    app.include_router(heartbeat_router, prefix="/api/v1")
     app.include_router(fleet_router, prefix="/api/v1")
     app.include_router(config_router, prefix="/api/v1")
     app.include_router(provision_router, prefix="/api/v1")

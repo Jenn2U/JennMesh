@@ -62,6 +62,8 @@ class DeviceRegistry:
         offline = sum(1 for d in devices if not d.is_online and d.last_seen is not None)
         critical = sum(1 for a in active_alerts if a["severity"] == "critical")
 
+        mesh_reachable = sum(1 for d in devices if d.mesh_status == "reachable")
+
         return FleetHealth(
             total_devices=len(devices),
             online_count=online,
@@ -71,33 +73,54 @@ class DeviceRegistry:
             critical_alerts=critical,
             devices_needing_update=sum(1 for d in devices if d.firmware.needs_update),
             devices_with_drift=sum(1 for d in devices if d.config_hash and d.config_hash.drifted),
+            mesh_reachable_count=mesh_reachable,
         )
 
     def check_offline_nodes(self) -> list[Alert]:
-        """Detect nodes that haven't been seen within the offline threshold."""
+        """Detect nodes that haven't been seen within the offline threshold.
+
+        If a node is offline (no HTTP telemetry) but still reachable via mesh
+        heartbeat, creates INTERNET_DOWN (warning) instead of NODE_OFFLINE (critical).
+        """
         devices = self.list_devices()
         cutoff = datetime.utcnow() - self.offline_threshold
         new_alerts: list[Alert] = []
 
         for device in devices:
             if device.last_seen and device.last_seen < cutoff:
-                if not self.db.has_active_alert(device.node_id, AlertType.NODE_OFFLINE.value):
-                    alert = Alert(
-                        node_id=device.node_id,
-                        alert_type=AlertType.NODE_OFFLINE,
-                        severity=ALERT_SEVERITY_MAP[AlertType.NODE_OFFLINE],
-                        message=(
-                            f"Node {device.display_name} offline since "
-                            f"{device.last_seen.isoformat()}"
-                        ),
+                # Decide: is the node reachable via mesh radio?
+                if device.mesh_status == "reachable":
+                    # Internet down but mesh radio alive — less severe
+                    alert_type = AlertType.INTERNET_DOWN
+                    if self.db.has_active_alert(device.node_id, AlertType.INTERNET_DOWN.value):
+                        continue
+                    message = (
+                        f"Node {device.display_name} internet down since "
+                        f"{device.last_seen.isoformat()} (reachable via mesh)"
                     )
-                    self.db.create_alert(
-                        node_id=alert.node_id,
-                        alert_type=alert.alert_type.value,
-                        severity=alert.severity.value,
-                        message=alert.message,
+                else:
+                    # No mesh heartbeat either — truly offline
+                    alert_type = AlertType.NODE_OFFLINE
+                    if self.db.has_active_alert(device.node_id, AlertType.NODE_OFFLINE.value):
+                        continue
+                    message = (
+                        f"Node {device.display_name} offline since "
+                        f"{device.last_seen.isoformat()}"
                     )
-                    new_alerts.append(alert)
+
+                alert = Alert(
+                    node_id=device.node_id,
+                    alert_type=alert_type,
+                    severity=ALERT_SEVERITY_MAP[alert_type],
+                    message=message,
+                )
+                self.db.create_alert(
+                    node_id=alert.node_id,
+                    alert_type=alert.alert_type.value,
+                    severity=alert.severity.value,
+                    message=alert.message,
+                )
+                new_alerts.append(alert)
 
         return new_alerts
 
@@ -148,6 +171,12 @@ class DeviceRegistry:
                 template_hash=row.get("template_hash"),
             )
 
+        last_mesh_hb = (
+            datetime.fromisoformat(row["last_mesh_heartbeat"])
+            if row.get("last_mesh_heartbeat")
+            else None
+        )
+
         return MeshDevice(
             node_id=row["node_id"],
             long_name=row.get("long_name", ""),
@@ -171,4 +200,6 @@ class DeviceRegistry:
             longitude=row.get("longitude"),
             altitude=row.get("altitude"),
             associated_edge_node=row.get("associated_edge_node"),
+            last_mesh_heartbeat=last_mesh_hb,
+            mesh_status=row.get("mesh_status", "unknown"),
         )

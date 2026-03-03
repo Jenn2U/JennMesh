@@ -63,6 +63,17 @@ def main() -> None:
         help="LoRa region (used in MQTT topic namespace)",
     )
     parser.add_argument(
+        "--heartbeat-interval",
+        type=int,
+        default=120,
+        help="Mesh heartbeat interval in seconds (default: 120)",
+    )
+    parser.add_argument(
+        "--heartbeat-disable",
+        action="store_true",
+        help="Disable mesh heartbeat sending",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -78,6 +89,7 @@ def main() -> None:
 
     # Import here to avoid import errors when meshtastic isn't installed
     from jenn_mesh.agent.health import AgentHealthMonitor
+    from jenn_mesh.agent.heartbeat_sender import HeartbeatSender
     from jenn_mesh.agent.radio_bridge import (
         PACKET_NODEINFO,
         PACKET_POSITION,
@@ -90,6 +102,17 @@ def main() -> None:
     bridge = RadioBridge(port=args.port, host=args.host)
     health = AgentHealthMonitor()
     mqtt_client = _create_mqtt_client(args)
+
+    # Initialize heartbeat sender (disabled with --heartbeat-disable)
+    heartbeat_sender: Optional[HeartbeatSender] = None
+    if not args.heartbeat_disable:
+        # Node ID will be determined after radio connection
+        heartbeat_sender = HeartbeatSender(
+            node_id="",  # Placeholder — set after connection
+            bridge=bridge,
+            interval=args.heartbeat_interval,
+        )
+        logger.info("Mesh heartbeat enabled (interval=%ds)", args.heartbeat_interval)
 
     # Wire up packet forwarding: radio -> MQTT
     def forward_to_mqtt(packet: dict) -> None:
@@ -113,6 +136,19 @@ def main() -> None:
         sys.exit(1)
 
     health.set_radio_status(True, port=args.port or args.host or "auto")
+
+    # Set heartbeat sender's node_id from connected radio
+    if heartbeat_sender:
+        try:
+            nodes = bridge.get_node_info()
+            if nodes:
+                # First node key is typically our own node
+                local_node_id = next(iter(nodes), "")
+                if local_node_id:
+                    heartbeat_sender.node_id = local_node_id
+                    logger.info("Heartbeat sender node_id: %s", local_node_id)
+        except Exception:
+            logger.warning("Could not determine local node_id for heartbeat")
 
     if mqtt_client:
         try:
@@ -150,6 +186,16 @@ def main() -> None:
                     asyncio.run(health.report_to_dashboard(args.dashboard_url))
                 except Exception:
                     pass
+
+            # Periodic mesh heartbeat
+            if heartbeat_sender and heartbeat_sender.node_id:
+                report = health.get_report()
+                services = heartbeat_sender.build_services_from_health(report)
+                heartbeat_sender.maybe_send(
+                    uptime_seconds=int(report.uptime_seconds),
+                    services=services,
+                    battery=-1,
+                )
     finally:
         bridge.disconnect()
         if mqtt_client:
