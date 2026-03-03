@@ -464,6 +464,15 @@ jenn-mesh agent                 # Start agent daemon
 - **mypy** strict mode
 - Pre-commit hooks enforce all three
 
+## TODO Comment Policy (MANDATORY)
+
+Every `TODO`, `FIXME`, or `HACK` comment left in source code **must** have a corresponding Azure DevOps work item in the JennMesh backlog. This ensures nothing is forgotten between sessions.
+
+- **Before writing a TODO**: Create an ADO Task first, then reference the work item ID in the comment (e.g., `# TODO(#575): dedicated channel_utilization field`)
+- **Found an existing TODO without an ADO item?** Create one immediately
+- **Stale TODOs** (work already done): Remove the comment and close the ADO item if one exists
+- **Audits**: When finishing a feature, grep for `TODO|FIXME|HACK|XXX` and verify each has a matching ADO work item
+
 ## Version Bump Rule (MANDATORY)
 
 - **BREAKING** → MAJOR (change radio protocol, break config format)
