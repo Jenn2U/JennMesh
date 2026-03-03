@@ -46,6 +46,7 @@ class MQTTSubscriber:
         self._on_alert: Optional[Callable] = None
         self._on_topology_update: Optional[Callable] = None
         self._on_heartbeat: Optional[Callable] = None
+        self._on_recovery_ack: Optional[Callable] = None
 
     def set_callbacks(
         self,
@@ -54,6 +55,7 @@ class MQTTSubscriber:
         on_alert: Optional[Callable] = None,
         on_topology_update: Optional[Callable] = None,
         on_heartbeat: Optional[Callable] = None,
+        on_recovery_ack: Optional[Callable] = None,
     ) -> None:
         """Register optional callbacks for real-time event hooks."""
         self._on_device_update = on_device_update
@@ -61,6 +63,7 @@ class MQTTSubscriber:
         self._on_alert = on_alert
         self._on_topology_update = on_topology_update
         self._on_heartbeat = on_heartbeat
+        self._on_recovery_ack = on_recovery_ack
 
     def start(self) -> bool:
         """Connect to broker and start listening for mesh telemetry."""
@@ -263,10 +266,15 @@ class MQTTSubscriber:
             self._on_topology_update(node_id)
 
     def _handle_text(self, node_id: str, payload: dict) -> None:
-        """Process a text message — route emergencies and heartbeats."""
+        """Process a text message — route recovery ACKs, emergencies, and heartbeats."""
         text = payload.get("text", "")
         if not isinstance(text, str):
             text = str(text)
+
+        # Recovery ACK from target agent (relayed via gateway → MQTT)
+        if text.startswith("RECOVER_ACK|"):
+            self._handle_recovery_ack(text, node_id)
+            return
 
         # Emergency broadcasts echoed back through the mesh → delivery confirmation
         if text.startswith("[EMERGENCY:"):
@@ -328,3 +336,43 @@ class MQTTSubscriber:
 
         if self._on_alert:
             self._on_alert(f"emergency_echo:{emergency_type}:{node_id}")
+
+    def _handle_recovery_ack(self, text: str, node_id: str) -> None:
+        """Handle a RECOVER_ACK message from a target agent (via mesh relay).
+
+        Parses the ACK, looks up the command by cmd_id in the DB, and updates
+        the command status to completed or failed.
+        """
+        from jenn_mesh.models.recovery import parse_recovery_ack
+
+        parsed = parse_recovery_ack(text)
+        if parsed is None:
+            logger.warning("Malformed recovery ACK from %s: %s", node_id, text)
+            return
+
+        cmd_id = parsed["cmd_id"]
+        status = parsed["status"]
+        message = parsed.get("message", "")
+
+        logger.info(
+            "Recovery ACK received: cmd_id=%d status=%s from=%s message=%s",
+            cmd_id,
+            status,
+            node_id,
+            message,
+        )
+
+        # Update command status in DB via RecoveryManager
+        try:
+            from jenn_mesh.core.recovery_manager import RecoveryManager
+
+            manager = RecoveryManager(db=self.db)
+            if status == "success":
+                manager.mark_completed(cmd_id, result_message=message)
+            else:
+                manager.mark_failed(cmd_id, error=message or f"Failed (from {node_id})")
+        except Exception as e:
+            logger.error("Error updating recovery command %d: %s", cmd_id, e)
+
+        if self._on_recovery_ack:
+            self._on_recovery_ack(cmd_id, status, node_id)

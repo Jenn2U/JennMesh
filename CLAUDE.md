@@ -7,7 +7,7 @@ JennMesh is the centralized Meshtastic LoRa radio fleet management service for t
 **Version**: 0.2.0
 **Language**: Python 3.11+
 **Type**: Standalone mesh management service with web dashboard + agent daemon + CLI tools
-**Tests**: 460 (pytest) — target 80%+
+**Tests**: 601 (pytest) — target 80%+
 
 ## Architecture
 
@@ -43,6 +43,7 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/models/fleet.py` | FleetHealth, NodeStatus, Alert, AlertType, INTERNET_DOWN |
 | `src/jenn_mesh/models/heartbeat.py` | MeshHeartbeat, ServiceStatus, HeartbeatSummary |
 | `src/jenn_mesh/models/emergency.py` | EmergencyType, BroadcastStatus, EmergencyBroadcast, mesh text format |
+| `src/jenn_mesh/models/recovery.py` | RecoveryCommandType/Status, wire format helpers, ALLOWED_COMMANDS/SERVICES |
 | `src/jenn_mesh/models/location.py` | GPSPosition, LostNodeQuery, ProximityResult |
 | `src/jenn_mesh/core/registry.py` | SQLite WAL device registry |
 | `src/jenn_mesh/core/config_manager.py` | Golden config CRUD, drift detection |
@@ -50,9 +51,12 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/core/mqtt_subscriber.py` | Subscribes to mesh broker, ingests telemetry + heartbeats |
 | `src/jenn_mesh/core/heartbeat_receiver.py` | Parses HEARTBEAT\| text messages, stores in DB, stale detection |
 | `src/jenn_mesh/core/emergency_manager.py` | EmergencyBroadcastManager — validate, store, MQTT command, delivery confirmation |
+| `src/jenn_mesh/core/recovery_manager.py` | RecoveryManager — validate, DB store, MQTT publish, rate limit, status tracking |
 | `src/jenn_mesh/agent/radio_bridge.py` | Serial/TCP connection to local Meshtastic radio |
 | `src/jenn_mesh/agent/remote_admin.py` | PKC remote admin commands via mesh |
 | `src/jenn_mesh/agent/heartbeat_sender.py` | Builds + sends periodic heartbeat text messages over LoRa |
+| `src/jenn_mesh/agent/recovery_handler.py` | Target-agent-side: validate nonce/timestamp, execute OS commands, send ACK |
+| `src/jenn_mesh/agent/recovery_relay.py` | Gateway-agent-side: MQTT → mesh relay, forward RECOVER_ACK back to MQTT |
 | `src/jenn_mesh/provisioning/bench_flash.py` | USB detect + golden config flash |
 | `src/jenn_mesh/provisioning/security.py` | PKC admin key gen, Managed Mode setup |
 | `src/jenn_mesh/provisioning/firmware.py` | Firmware version tracking, update flagging |
@@ -64,13 +68,14 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/dashboard/routes/workbench.py` | 9 API endpoints (workbench + bulk push) |
 | `src/jenn_mesh/dashboard/routes/heartbeat.py` | 3 API endpoints (per-device, recent, fleet mesh-status) |
 | `src/jenn_mesh/dashboard/routes/emergency.py` | 4 API endpoints (send broadcast, list, get, fleet status) |
+| `src/jenn_mesh/dashboard/routes/recovery.py` | 4 API endpoints (send command, list history, get by ID, node status) |
 | `src/jenn_mesh/dashboard/app.py` | FastAPI dashboard application factory |
 | `src/jenn_mesh/dashboard/middleware.py` | Security headers, request logging, rate limiting, CORS |
 | `src/jenn_mesh/dashboard/error_handlers.py` | Global exception handlers (HTTP, validation, unhandled) |
 | `src/jenn_mesh/dashboard/lifespan.py` | Application startup/shutdown lifecycle |
 | `src/jenn_mesh/dashboard/logging_config.py` | Rotating file + console logging configuration |
 | `src/jenn_mesh/cli.py` | CLI entry point with subcommands |
-| `src/jenn_mesh/db.py` | SQLite WAL schema v5 (devices, positions, alerts, configs, heartbeats, emergency_broadcasts) |
+| `src/jenn_mesh/db.py` | SQLite WAL schema v6 (devices, positions, alerts, configs, heartbeats, emergency_broadcasts, recovery_commands) |
 | `configs/*.yaml` | Golden Meshtastic config templates per device role |
 | `deploy/systemd/*.service` | 4 systemd unit files (broker, dashboard, agent, sentry) |
 | `deploy/scripts/install.sh` | 9-phase idempotent installer for ARM64 Linux |
@@ -119,12 +124,12 @@ The dashboard uses a layered middleware + error handling stack:
 - Unhandled Exception → 500 with `logger.exception()`, generic response
 
 ### Lifespan Management
-- `@asynccontextmanager` in `lifespan.py` — startup: logging, DB, WorkbenchManager, BulkPushManager, EmergencyBroadcastManager, startup_time
+- `@asynccontextmanager` in `lifespan.py` — startup: logging, DB, WorkbenchManager, BulkPushManager, EmergencyBroadcastManager, RecoveryManager, startup_time
 - Graceful degradation: if DB init fails, dashboard runs degraded (health reports "degraded")
 - Test DB injection: `create_app(db=test_db)` sets state directly (httpx ASGITransport doesn't fire lifespan)
 
 ### Health Endpoint (`/health`)
-- Components: database (schema_version), workbench, bulk_push, mesh_heartbeats, emergency_broadcasts, uptime_seconds
+- Components: database (schema_version), workbench, bulk_push, mesh_heartbeats, emergency_broadcasts, recovery_commands, uptime_seconds
 - Overall status: "healthy" or "degraded" (if any component fails)
 
 ### Logging
@@ -142,7 +147,7 @@ Edge nodes send periodic heartbeat text messages over LoRa radio so JennMesh can
 - Interval: 120 seconds (configurable via `--heartbeat-interval`)
 - Services: comma-separated `name:status` pairs (e.g., `edge:ok,mqtt:down`)
 
-### Database (Schema v4 → v5 adds emergency_broadcasts)
+### Database (Schema v4 → v5 adds emergency_broadcasts, v5 → v6 adds recovery_commands)
 - `mesh_heartbeats` table — stores every received heartbeat
 - `devices.mesh_status` — `"reachable"` | `"unreachable"` | `"unknown"`
 - `devices.last_mesh_heartbeat` — ISO timestamp of last heartbeat
@@ -198,6 +203,61 @@ Operators push critical alerts to all field radios over LoRa mesh when internet/
 - `confirmed: true` required on POST — returns 400 if missing or false (irreversible action)
 - Channel 3 (Emergency) — already configured on all devices via golden config templates
 - All radios display emergency messages on their screens
+
+## Edge Node Recovery System (MESH-025)
+
+Send recovery commands to offline edge nodes via LoRa mesh — the killer feature for remote fleet management when internet is down.
+
+### Architecture: Dashboard → MQTT → Gateway Agent → Mesh → Target Agent
+1. Dashboard API receives command → validates → stores in DB → publishes JSON to `jenn/mesh/command/recovery`
+2. Gateway agent (RecoveryRelay) subscribes MQTT → sends text via `RadioBridge.send_text(destination=target, channel_index=1)`
+3. Target agent (RecoveryHandler) receives mesh text → validates nonce+timestamp → executes OS command → sends `RECOVER_ACK` back
+4. MQTT subscriber detects `RECOVER_ACK|` prefix → updates command status in DB
+
+### Wire Protocol
+- Command: `RECOVER|{cmd_id}|{command_type}|{args}|{nonce}|{timestamp}` (~60-100 bytes)
+- ACK: `RECOVER_ACK|{cmd_id}|{status}|{message}`
+- Channel 1 (ADMIN) with PSK encryption — all fleet devices share the ADMIN PSK via golden config
+
+### Allowed Commands (hardcoded frozenset — NOT configurable)
+| Command | OS Action |
+|---------|-----------|
+| `reboot` | `sudo shutdown -r now` |
+| `restart_service` | `sudo systemctl restart {service}` (validated against ALLOWED_SERVICES) |
+| `restart_ollama` | `sudo systemctl restart ollama` |
+| `system_status` | Collects uptime, disk, memory, service states (read-only) |
+
+### ALLOWED_SERVICES
+`jennedge`, `jenn-sentry-agent`, `jenn-mesh-agent`, `ollama`
+
+### Safety
+- `confirmed: true` required on POST — returns 400 if missing or false
+- Nonce (8-char hex) + Unix timestamp replay prevention (5-min tolerance)
+- Bounded nonce deque (maxlen=100) on target agent
+- Rate limit: 1 command per target node per 30 seconds (dashboard-side)
+- Command expiry: `expires_at` = created_at + 5 minutes
+
+### Database (Schema v6)
+- `recovery_commands` table — stores every command with status tracking
+- Statuses: `pending` → `sending` → `sent` → `completed` | `failed` | `expired`
+- 6 DB methods: create, update_status, get, get_by_nonce, list, get_recent
+
+### API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/recovery/send` | Send recovery command (requires `confirmed: true`) |
+| `GET` | `/api/v1/recovery/commands` | List recovery command history |
+| `GET` | `/api/v1/recovery/command/{command_id}` | Get specific command status |
+| `GET` | `/api/v1/recovery/status/{node_id}` | Node recovery status summary |
+
+### Agent CLI Flags
+- `--recovery-disable` — Disables RecoveryHandler on target agents
+- `--recovery-relay` — Enables RecoveryRelay on gateway agents
+- An agent can run both handler and relay simultaneously
+
+### MQTT Topics
+- `jenn/mesh/command/recovery` — Dashboard → Gateway agent (JSON command payload)
+- `jenn/mesh/command/recovery/ack` — Gateway agent → Dashboard (relay ACK after mesh send)
 
 ## CLI Commands
 

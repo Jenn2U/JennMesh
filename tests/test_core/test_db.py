@@ -20,6 +20,7 @@ class TestMeshDatabase:
         assert "provisioning_log" in table_names
         assert "channels" in table_names
         assert "schema_version" in table_names
+        assert "recovery_commands" in table_names
 
     def test_wal_mode_enabled(self, db: MeshDatabase):
         with db.connection() as conn:
@@ -159,3 +160,156 @@ class TestPrunePositions:
         # Recent position should remain
         pos = db.get_latest_position("!test01")
         assert pos is not None
+
+
+class TestRecoveryCommandOperations:
+    """Tests for recovery command DB methods."""
+
+    def test_create_and_get(self, db: MeshDatabase):
+        cmd_id = db.create_recovery_command(
+            target_node_id="!aaa11111",
+            command_type="reboot",
+            args="",
+            nonce="abcd1234",
+            sender="operator-1",
+            expires_at="2030-01-01T00:05:00",
+        )
+        assert cmd_id > 0
+        cmd = db.get_recovery_command(cmd_id)
+        assert cmd is not None
+        assert cmd["target_node_id"] == "!aaa11111"
+        assert cmd["command_type"] == "reboot"
+        assert cmd["nonce"] == "abcd1234"
+        assert cmd["status"] == "pending"
+        assert cmd["sender"] == "operator-1"
+
+    def test_get_nonexistent_returns_none(self, db: MeshDatabase):
+        assert db.get_recovery_command(99999) is None
+
+    def test_get_by_nonce(self, db: MeshDatabase):
+        db.create_recovery_command(
+            target_node_id="!aaa11111",
+            command_type="system_status",
+            args="",
+            nonce="unique_nonce_1",
+            expires_at="2030-01-01T00:05:00",
+        )
+        cmd = db.get_recovery_command_by_nonce("unique_nonce_1")
+        assert cmd is not None
+        assert cmd["command_type"] == "system_status"
+
+    def test_get_by_nonce_nonexistent(self, db: MeshDatabase):
+        assert db.get_recovery_command_by_nonce("no_such_nonce") is None
+
+    def test_update_status_sent(self, db: MeshDatabase):
+        cmd_id = db.create_recovery_command(
+            target_node_id="!aaa11111",
+            command_type="reboot",
+            args="",
+            nonce="nonce_sent",
+            expires_at="2030-01-01T00:05:00",
+        )
+        db.update_recovery_status(cmd_id, "sent", sent_at="2026-03-03T12:00:01")
+        cmd = db.get_recovery_command(cmd_id)
+        assert cmd["status"] == "sent"
+        assert cmd["sent_at"] == "2026-03-03T12:00:01"
+
+    def test_update_status_completed(self, db: MeshDatabase):
+        cmd_id = db.create_recovery_command(
+            target_node_id="!aaa11111",
+            command_type="restart_service",
+            args="jennedge",
+            nonce="nonce_comp",
+            expires_at="2030-01-01T00:05:00",
+        )
+        db.update_recovery_status(
+            cmd_id,
+            "completed",
+            result_message="jennedge restarted",
+            completed_at="2026-03-03T12:00:05",
+        )
+        cmd = db.get_recovery_command(cmd_id)
+        assert cmd["status"] == "completed"
+        assert cmd["result_message"] == "jennedge restarted"
+        assert cmd["completed_at"] == "2026-03-03T12:00:05"
+
+    def test_update_status_failed(self, db: MeshDatabase):
+        cmd_id = db.create_recovery_command(
+            target_node_id="!aaa11111",
+            command_type="reboot",
+            args="",
+            nonce="nonce_fail",
+            expires_at="2030-01-01T00:05:00",
+        )
+        db.update_recovery_status(cmd_id, "failed", result_message="permission denied")
+        cmd = db.get_recovery_command(cmd_id)
+        assert cmd["status"] == "failed"
+        assert cmd["result_message"] == "permission denied"
+
+    def test_list_all(self, db: MeshDatabase):
+        for i in range(3):
+            db.create_recovery_command(
+                target_node_id=f"!node{i:04d}",
+                command_type="system_status",
+                args="",
+                nonce=f"nonce_{i}",
+                expires_at="2030-01-01T00:05:00",
+            )
+        cmds = db.list_recovery_commands()
+        assert len(cmds) == 3
+
+    def test_list_by_node(self, db: MeshDatabase):
+        db.create_recovery_command(
+            target_node_id="!target_a",
+            command_type="reboot",
+            args="",
+            nonce="nonce_a",
+            expires_at="2030-01-01T00:05:00",
+        )
+        db.create_recovery_command(
+            target_node_id="!target_b",
+            command_type="system_status",
+            args="",
+            nonce="nonce_b",
+            expires_at="2030-01-01T00:05:00",
+        )
+        cmds_a = db.list_recovery_commands(target_node_id="!target_a")
+        assert len(cmds_a) == 1
+        assert cmds_a[0]["target_node_id"] == "!target_a"
+
+    def test_list_empty(self, db: MeshDatabase):
+        assert db.list_recovery_commands() == []
+
+    def test_list_respects_limit(self, db: MeshDatabase):
+        for i in range(10):
+            db.create_recovery_command(
+                target_node_id="!aaa11111",
+                command_type="system_status",
+                args="",
+                nonce=f"nonce_lim_{i}",
+                expires_at="2030-01-01T00:05:00",
+            )
+        cmds = db.list_recovery_commands(limit=3)
+        assert len(cmds) == 3
+
+    def test_get_recent(self, db: MeshDatabase):
+        # Created with default timestamp (now) — should appear in recent
+        db.create_recovery_command(
+            target_node_id="!aaa11111",
+            command_type="reboot",
+            args="",
+            nonce="nonce_recent",
+            expires_at="2030-01-01T00:05:00",
+        )
+        recent = db.get_recent_recovery_commands(minutes=5)
+        assert len(recent) >= 1
+        assert recent[0]["nonce"] == "nonce_recent"
+
+    def test_populated_db_has_recovery_seed(self, populated_db: MeshDatabase):
+        """Verify conftest seed data includes recovery commands."""
+        cmds = populated_db.list_recovery_commands()
+        assert len(cmds) == 2
+        # Most recent first
+        statuses = {c["status"] for c in cmds}
+        assert "completed" in statuses
+        assert "pending" in statuses

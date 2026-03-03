@@ -317,16 +317,21 @@ for physical USB/Bluetooth radio administration. Bare-metal + systemd (not Docke
 - 4 new production files: `logging_config.py`, `middleware.py`, `error_handlers.py`, `lifespan.py`
 
 ### MESH-025: Mesh-Based Edge Node Recovery
-**Priority**: P1 | **Effort**: XL | **Status**: Backlog
-When an edge node is unreachable via network (WiFi/ethernet down) but its radio
-is still transmitting, use the mesh to send recovery commands:
-  - Reboot edge node
-  - Restart JennEdge service
-  - Restart Ollama
-  - Report system status back via mesh text message
-Agent on edge node listens for admin mesh messages and executes recovery actions.
-Critical safety: authenticate commands via PKC, rate-limit, audit trail.
-**This is a killer feature** — no other system can recover offline edge nodes.
+**Priority**: P1 | **Effort**: XL | **Status**: ✅ Done
+Send recovery commands (reboot, restart_service, restart_ollama, system_status)
+to offline edge nodes via LoRa mesh. Dashboard → MQTT → Gateway Agent → Mesh →
+Target Agent → execute + ACK. Wire protocol: `RECOVER|{cmd_id}|{type}|{args}|{nonce}|{ts}`,
+ACK: `RECOVER_ACK|{cmd_id}|{status}|{message}`. Channel 1 (ADMIN) with PSK encryption.
+Safety: hardcoded ALLOWED_COMMANDS/SERVICES frozensets, nonce+timestamp replay prevention,
+30s per-node rate limit, `confirmed: true` API gate, 5-min command expiry.
+- 5 new source files: models/recovery.py, core/recovery_manager.py, agent/recovery_handler.py,
+  agent/recovery_relay.py, dashboard/routes/recovery.py
+- 8 modified files: db.py (schema v5→v6), fleet.py, mqtt_subscriber.py, cli.py,
+  app.py, health.py, lifespan.py, conftest.py
+- 5 test files, 141 new tests; 601 total passing
+- DB schema v5→v6: `recovery_commands` table + 6 new DB methods
+- 4 API endpoints: POST /recovery/send, GET /commands, GET /command/{id}, GET /status/{node_id}
+**This is the killer feature** — no other system can recover offline edge nodes via radio mesh.
 
 ### MESH-026: Emergency Broadcast System
 **Priority**: P1 | **Effort**: L | **Status**: ✅ Done

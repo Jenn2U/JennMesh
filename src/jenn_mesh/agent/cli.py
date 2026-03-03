@@ -74,6 +74,16 @@ def main() -> None:
         help="Disable mesh heartbeat sending",
     )
     parser.add_argument(
+        "--recovery-disable",
+        action="store_true",
+        help="Disable recovery command handler (target agent won't respond to recovery)",
+    )
+    parser.add_argument(
+        "--recovery-relay",
+        action="store_true",
+        help="Enable recovery relay (gateway agent relays MQTT commands to mesh)",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -114,6 +124,21 @@ def main() -> None:
         )
         logger.info("Mesh heartbeat enabled (interval=%ds)", args.heartbeat_interval)
 
+    # Initialize recovery handler (disabled with --recovery-disable)
+    from jenn_mesh.agent.recovery_handler import RecoveryHandler
+    from jenn_mesh.agent.recovery_relay import RecoveryRelay
+
+    recovery_handler: Optional[RecoveryHandler] = None
+    if not args.recovery_disable:
+        recovery_handler = RecoveryHandler(bridge=bridge, node_id="")
+        logger.info("Recovery handler enabled")
+
+    # Initialize recovery relay (enabled with --recovery-relay)
+    recovery_relay: Optional[RecoveryRelay] = None
+    if args.recovery_relay:
+        recovery_relay = RecoveryRelay(bridge=bridge, mqtt_client=mqtt_client)
+        logger.info("Recovery relay enabled")
+
     # Wire up packet forwarding: radio -> MQTT
     def forward_to_mqtt(packet: dict) -> None:
         health.record_packet_received()
@@ -125,10 +150,28 @@ def main() -> None:
         except Exception as e:
             logger.error("MQTT publish error: %s", e)
 
+    # Wire up text handler: recovery handler + relay intercept RECOVER/ACK texts
+    def handle_text_packet(packet: dict) -> None:
+        text = packet.get("payload", {}).get("text", "")
+        from_id = packet.get("from", "")
+
+        # Recovery handler: target agent processes RECOVER| commands
+        if recovery_handler and text:
+            if recovery_handler.handle_mesh_text(text, from_id=from_id):
+                return  # Consumed by recovery handler
+
+        # Recovery relay: gateway forwards RECOVER_ACK| to MQTT
+        if recovery_relay and text:
+            if recovery_relay.handle_mesh_text(text, from_id=from_id):
+                return  # Consumed by recovery relay
+
+        # Default: forward to MQTT like all other packets
+        forward_to_mqtt(packet)
+
     bridge.on_packet(PACKET_NODEINFO, forward_to_mqtt)
     bridge.on_packet(PACKET_POSITION, forward_to_mqtt)
     bridge.on_packet(PACKET_TELEMETRY, forward_to_mqtt)
-    bridge.on_packet(PACKET_TEXT, forward_to_mqtt)
+    bridge.on_packet(PACKET_TEXT, handle_text_packet)
 
     # Connect
     if not bridge.connect():
@@ -137,18 +180,22 @@ def main() -> None:
 
     health.set_radio_status(True, port=args.port or args.host or "auto")
 
-    # Set heartbeat sender's node_id from connected radio
-    if heartbeat_sender:
-        try:
-            nodes = bridge.get_node_info()
-            if nodes:
-                # First node key is typically our own node
-                local_node_id = next(iter(nodes), "")
-                if local_node_id:
-                    heartbeat_sender.node_id = local_node_id
-                    logger.info("Heartbeat sender node_id: %s", local_node_id)
-        except Exception:
-            logger.warning("Could not determine local node_id for heartbeat")
+    # Set node_id from connected radio for heartbeat + recovery handler
+    local_node_id = ""
+    try:
+        nodes = bridge.get_node_info()
+        if nodes:
+            local_node_id = next(iter(nodes), "")
+    except Exception:
+        logger.warning("Could not determine local node_id")
+
+    if local_node_id:
+        if heartbeat_sender:
+            heartbeat_sender.node_id = local_node_id
+            logger.info("Heartbeat sender node_id: %s", local_node_id)
+        if recovery_handler:
+            recovery_handler.node_id = local_node_id
+            logger.info("Recovery handler node_id: %s", local_node_id)
 
     if mqtt_client:
         try:
@@ -158,6 +205,10 @@ def main() -> None:
             logger.info("MQTT connected to %s:%d", args.mqtt_broker, args.mqtt_port)
         except Exception as e:
             logger.error("MQTT connection failed: %s", e)
+
+    # Start recovery relay (requires MQTT connection)
+    if recovery_relay:
+        recovery_relay.start()
 
     # Signal handling for clean shutdown
     running = True
@@ -197,6 +248,8 @@ def main() -> None:
                     battery=-1,
                 )
     finally:
+        if recovery_relay:
+            recovery_relay.stop()
         bridge.disconnect()
         if mqtt_client:
             mqtt_client.loop_stop()

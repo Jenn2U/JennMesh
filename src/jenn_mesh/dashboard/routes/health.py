@@ -76,7 +76,24 @@ async def health_check(request: Request) -> dict:
     else:
         components["emergency_broadcasts"] = {"status": "unavailable"}
 
-    # 6. Uptime
+    # 6. Recovery commands
+    if db is not None:
+        try:
+            recent_rc = db.get_recent_recovery_commands(minutes=60)
+            pending_rc = [c for c in recent_rc if c["status"] in {"pending", "sending", "sent"}]
+            last_cmd = recent_rc[0]["created_at"] if recent_rc else None
+            components["recovery_commands"] = {
+                "status": "healthy",
+                "recent_count": len(recent_rc),
+                "pending_count": len(pending_rc),
+                "last_command_time": last_cmd,
+            }
+        except Exception as exc:
+            components["recovery_commands"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["recovery_commands"] = {"status": "unavailable"}
+
+    # 7. Uptime
     startup_time = getattr(request.app.state, "startup_time", None)
     if startup_time is not None:
         uptime = (datetime.now(timezone.utc) - startup_time).total_seconds()

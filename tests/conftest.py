@@ -165,6 +165,36 @@ def populated_db(db: MeshDatabase) -> MeshDatabase:
         channel_index=3,
     )
 
+    # Recovery command seed data (1 completed, 1 pending)
+    from jenn_mesh.models.recovery import generate_nonce
+
+    rc_expires = (now + timedelta(minutes=5)).isoformat()
+    rc_completed_ts = (now - timedelta(minutes=3)).isoformat()
+
+    cmd1_id = db.create_recovery_command(
+        target_node_id="!ccc33333",
+        command_type="restart_service",
+        args="jennedge",
+        nonce=generate_nonce(),
+        sender="operator-1",
+        expires_at=rc_expires,
+    )
+    db.update_recovery_status(
+        cmd1_id,
+        "completed",
+        result_message="jennedge restarted",
+        completed_at=rc_completed_ts,
+    )
+
+    db.create_recovery_command(
+        target_node_id="!ccc33333",
+        command_type="system_status",
+        args="",
+        nonce=generate_nonce(),
+        sender="dashboard",
+        expires_at=rc_expires,
+    )
+
     # Firmware compatibility matrix seed data
     db.upsert_firmware_compat("heltec_v3", "2.5.6", "COMPATIBLE")
     db.upsert_firmware_compat("heltec_v3", "2.5.0", "COMPATIBLE")

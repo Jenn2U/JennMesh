@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, Optional
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA_SQL = """
 -- Device registry: every known radio in the fleet
@@ -185,6 +185,25 @@ CREATE TABLE IF NOT EXISTS emergency_broadcasts (
 );
 CREATE INDEX IF NOT EXISTS idx_emergency_status ON emergency_broadcasts(status, created_at DESC);
 
+-- Recovery commands: remote recovery actions sent to edge nodes via LoRa mesh
+CREATE TABLE IF NOT EXISTS recovery_commands (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_node_id  TEXT NOT NULL,
+    command_type    TEXT NOT NULL,
+    args            TEXT NOT NULL DEFAULT '',
+    nonce           TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    confirmed       INTEGER NOT NULL DEFAULT 0,
+    sender          TEXT NOT NULL DEFAULT 'dashboard',
+    result_message  TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    sent_at         TEXT,
+    completed_at    TEXT,
+    expires_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_recovery_status ON recovery_commands(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_recovery_node ON recovery_commands(target_node_id, created_at DESC);
+
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version         INTEGER NOT NULL,
@@ -226,6 +245,7 @@ class MeshDatabase:
                     # v3 → v4: mesh_heartbeats table, devices.last_mesh_heartbeat,
                     #           devices.mesh_status
                     # v4 → v5: emergency_broadcasts table (CREATE IF NOT EXISTS only)
+                    # v5 → v6: recovery_commands table (CREATE IF NOT EXISTS only)
                     if current_version < 4:
                         # Add new columns (safe: ALTER TABLE ADD COLUMN is idempotent-ish,
                         # but we guard with version check to avoid "duplicate column" errors)
@@ -896,6 +916,106 @@ class MeshDatabase:
         with self.connection() as conn:
             rows = conn.execute(
                 """SELECT * FROM emergency_broadcasts
+                   WHERE created_at >= datetime('now', ? || ' minutes')
+                   ORDER BY created_at DESC""",
+                (f"-{minutes}",),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # --- Recovery command methods ---
+
+    def create_recovery_command(
+        self,
+        target_node_id: str,
+        command_type: str,
+        args: str,
+        nonce: str,
+        sender: str = "dashboard",
+        expires_at: str = "",
+    ) -> int:
+        """Create a new recovery command record. Returns the command ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO recovery_commands
+                   (target_node_id, command_type, args, nonce, sender, status,
+                    confirmed, expires_at)
+                   VALUES (?, ?, ?, ?, ?, 'pending', 1, ?)""",
+                (target_node_id, command_type, args, nonce, sender, expires_at),
+            )
+            return cursor.lastrowid or 0
+
+    def update_recovery_status(
+        self,
+        command_id: int,
+        status: str,
+        *,
+        result_message: Optional[str] = None,
+        sent_at: Optional[str] = None,
+        completed_at: Optional[str] = None,
+    ) -> None:
+        """Update the status of a recovery command."""
+        with self.connection() as conn:
+            updates = ["status = ?"]
+            values: list[object] = [status]
+
+            if result_message is not None:
+                updates.append("result_message = ?")
+                values.append(result_message)
+            if sent_at is not None:
+                updates.append("sent_at = ?")
+                values.append(sent_at)
+            if completed_at is not None:
+                updates.append("completed_at = ?")
+                values.append(completed_at)
+
+            values.append(command_id)
+            conn.execute(
+                f"UPDATE recovery_commands SET {', '.join(updates)} WHERE id = ?",
+                values,
+            )
+
+    def get_recovery_command(self, command_id: int) -> Optional[dict]:
+        """Get a single recovery command by ID."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM recovery_commands WHERE id = ?",
+                (command_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_recovery_command_by_nonce(self, nonce: str) -> Optional[dict]:
+        """Get a recovery command by its nonce (for ACK matching)."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM recovery_commands WHERE nonce = ? ORDER BY created_at DESC LIMIT 1",
+                (nonce,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_recovery_commands(
+        self, target_node_id: Optional[str] = None, limit: int = 50
+    ) -> list[dict]:
+        """List recovery commands, optionally filtered by target node."""
+        with self.connection() as conn:
+            if target_node_id:
+                rows = conn.execute(
+                    """SELECT * FROM recovery_commands
+                       WHERE target_node_id = ?
+                       ORDER BY created_at DESC LIMIT ?""",
+                    (target_node_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM recovery_commands ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_recent_recovery_commands(self, minutes: int = 60) -> list[dict]:
+        """Get recovery commands from the last N minutes."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM recovery_commands
                    WHERE created_at >= datetime('now', ? || ' minutes')
                    ORDER BY created_at DESC""",
                 (f"-{minutes}",),
