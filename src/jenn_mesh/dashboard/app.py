@@ -102,6 +102,15 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
             app.state.recovery_manager = RecoveryManager(db=db)
         except Exception:
             pass  # graceful degradation — recovery features unavailable
+        try:
+            from jenn_mesh.core.drift_remediation import DriftRemediationManager
+
+            config_queue = getattr(app.state, "config_queue_manager", None)
+            app.state.drift_remediation_manager = DriftRemediationManager(
+                db=db, config_queue=config_queue
+            )
+        except Exception:
+            pass  # graceful degradation — drift remediation features unavailable
         app.state.startup_time = datetime.now(timezone.utc)
 
     # --- Error handlers ---

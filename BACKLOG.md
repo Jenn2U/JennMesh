@@ -216,7 +216,7 @@ Composite health score (0-100) per node based on:
 Dashboard: health score badge per device, fleet-wide health histogram.
 
 ### MESH-023: Config Drift Auto-Remediation
-**Priority**: P3 | **Effort**: M | **Status**: Backlog
+**Priority**: P3 | **Effort**: M | **Status**: Done
 When drift is detected, offer one-click remediation via remote admin:
   Push golden template to drifted device over the mesh using PKC admin.
   Log remediation in provisioning_log.
@@ -814,5 +814,17 @@ instead of sending all raw data to one gateway.
 |----|-------|--------|--------|
 | MESH-047 | Production Readiness Hardening | XL | ✅ Done |
 | MESH-031 | Edge Node Heartbeat via Mesh | M | ✅ Done |
+| MESH-026 | Emergency Broadcast System | L | ✅ Done |
+| MESH-025 | Mesh-Based Edge Node Recovery | XL | ✅ Done |
+| MESH-028 | Store-and-Forward Config Queue | M | ✅ Done |
+| MESH-023 | Config Drift Auto-Remediation | M | ✅ Done |
 
 **MESH-031 delivered**: Mesh heartbeat protocol (`HEARTBEAT|nodeId|uptime|services|battery|timestamp`, ~60-80 bytes, 120s interval). Schema v3→v4 migration (mesh_heartbeats table, 2 new devices columns). HeartbeatSender (agent side — build+send+interval gating via RadioBridge). HeartbeatReceiver (dashboard side — parse+store+stale detection). Registry intelligence: `INTERNET_DOWN` (warning) vs `NODE_OFFLINE` (critical) based on mesh reachability. 3 new API endpoints, fleet endpoint enrichment, health component. 65 new tests (395 total). 5 new source files, 10 modified.
+
+**MESH-026 delivered**: Emergency broadcast system — push critical alerts to all field radios over LoRa mesh. Dashboard → MQTT → Agent → Mesh text (`[EMERGENCY:{TYPE}] {message}`). 6 emergency types, MQTT echo delivery confirmation, confirmed gate safety. Schema v5, EmergencyBroadcastManager, 4 API endpoints. 65 new tests (460 total).
+
+**MESH-025 delivered**: Mesh-based edge node recovery — send reboot/restart commands to offline nodes via LoRa. Dashboard → MQTT → Gateway Agent → Mesh → Target Agent → execute + ACK. Wire protocol with nonce+timestamp replay prevention, 30s rate limit, hardcoded ALLOWED_COMMANDS frozenset. Schema v5→v6 (recovery_commands table). RecoveryManager, RecoveryHandler, RecoveryRelay. 4 API endpoints. 141 new tests (601 total).
+
+**MESH-028 delivered**: Store-and-forward config queue — persistent outbox for offline radios. BulkPushManager auto-enqueues failures → ConfigQueueManager with exponential backoff (1m→32m cap) → RemoteAdmin retry via asyncio background loop. Max-retries escalation to CONFIG_PUSH_FAILED fleet alert. Schema v6→v7 (config_queue table). 5 API endpoints, manual retry/cancel with confirmed gate. 55 new tests (656 total).
+
+**MESH-023 delivered**: Config drift auto-remediation — one-click fix for drifted devices. DriftRemediationManager coordinates ConfigManager + RemoteAdmin + ConfigQueueManager. Preview endpoint shows golden template YAML + hash comparison. Remediate pushes golden template via PKC admin; failures auto-enqueue in config queue for store-and-forward retry. Resolves both CONFIG_DRIFT and CONFIG_PUSH_FAILED alerts on success. Remediate-all batch operation. Status endpoint aggregates drift state, queue entries, alerts, recent log. 4 API endpoints with confirmed gate safety. 32 new tests (688 total).

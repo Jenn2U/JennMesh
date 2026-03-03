@@ -7,7 +7,7 @@ JennMesh is the centralized Meshtastic LoRa radio fleet management service for t
 **Version**: 0.2.0
 **Language**: Python 3.11+
 **Type**: Standalone mesh management service with web dashboard + agent daemon + CLI tools
-**Tests**: 656 (pytest) — target 80%+
+**Tests**: 688 (pytest) — target 80%+
 
 ## Architecture
 
@@ -72,6 +72,7 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/dashboard/routes/emergency.py` | 4 API endpoints (send broadcast, list, get, fleet status) |
 | `src/jenn_mesh/dashboard/routes/recovery.py` | 4 API endpoints (send command, list history, get by ID, node status) |
 | `src/jenn_mesh/dashboard/routes/config_queue.py` | 5 API endpoints (list, get, retry, cancel, device status) |
+| `src/jenn_mesh/core/drift_remediation.py` | DriftRemediationManager: preview, remediate, remediate-all, status |
 | `src/jenn_mesh/dashboard/app.py` | FastAPI dashboard application factory |
 | `src/jenn_mesh/dashboard/middleware.py` | Security headers, request logging, rate limiting, CORS |
 | `src/jenn_mesh/dashboard/error_handlers.py` | Global exception handlers (HTTP, validation, unhandled) |
@@ -127,12 +128,12 @@ The dashboard uses a layered middleware + error handling stack:
 - Unhandled Exception → 500 with `logger.exception()`, generic response
 
 ### Lifespan Management
-- `@asynccontextmanager` in `lifespan.py` — startup: logging, DB, ConfigQueueManager, WorkbenchManager, BulkPushManager (wired to config queue), EmergencyBroadcastManager, RecoveryManager, config queue retry loop, startup_time
+- `@asynccontextmanager` in `lifespan.py` — startup: logging, DB, ConfigQueueManager, WorkbenchManager, BulkPushManager (wired to config queue), EmergencyBroadcastManager, RecoveryManager, DriftRemediationManager (wired to config queue), config queue retry loop, startup_time
 - Graceful degradation: if DB init fails, dashboard runs degraded (health reports "degraded")
 - Test DB injection: `create_app(db=test_db)` sets state directly (httpx ASGITransport doesn't fire lifespan)
 
 ### Health Endpoint (`/health`)
-- Components: database (schema_version), workbench, bulk_push, mesh_heartbeats, emergency_broadcasts, recovery_commands, config_queue, uptime_seconds
+- Components: database (schema_version), workbench, bulk_push, mesh_heartbeats, emergency_broadcasts, recovery_commands, config_queue, drift_remediation, uptime_seconds
 - Overall status: "healthy" or "degraded" (if any component fails)
 
 ### Logging
@@ -299,6 +300,31 @@ When `BulkPushManager` fails to deliver a config to an offline radio, it auto-en
 - **retry_count NOT reset on manual retry** — preserves full audit trail
 - **Optional wiring** — `BulkPushManager(db, config_queue=None)` default; wired in lifespan
 - **No new wire protocol** — config payloads exceed LoRa 256-byte limit; RemoteAdmin handles fragmentation at firmware level
+
+## Config Drift Auto-Remediation (MESH-023)
+
+One-click fix for config-drifted devices. DriftRemediationManager coordinates ConfigManager, RemoteAdmin, and ConfigQueueManager.
+
+### Flow
+1. Dashboard → `GET /drift/{id}/preview` → shows golden template YAML + hash comparison
+2. Operator confirms → `POST /drift/{id}/remediate` → writes temp YAML → RemoteAdmin push over mesh
+3. Success → update DB hashes, resolve CONFIG_DRIFT + CONFIG_PUSH_FAILED alerts, log provisioning
+4. Failure → auto-enqueue in config_queue for store-and-forward retry with exponential backoff
+
+### API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/config/drift/{node_id}/preview` | Remediation preview (template YAML, hashes) |
+| `POST` | `/api/v1/config/drift/{node_id}/remediate` | Fix single device (requires `confirmed: true`) |
+| `POST` | `/api/v1/config/drift/remediate-all` | Fix all drifted (requires `confirmed: true`) |
+| `GET` | `/api/v1/config/drift/{node_id}/status` | Remediation status (drift, queue, alerts, log) |
+
+### Design Decisions
+- **No device config fetch** — we know it's drifted (hashes differ); future enhancement could add true YAML diff
+- **Enqueue on failure** — failed pushes go straight into ConfigQueueManager for automatic retry
+- **Resolve both alert types** — `_handle_success()` resolves CONFIG_DRIFT + CONFIG_PUSH_FAILED
+- **Lightweight coordinator** — no background tasks, no async loops; synchronous calls
+- **Route order** — `remediate-all` (static) defined BEFORE `{node_id}` (param) to prevent FastAPI path capture
 
 ## CLI Commands
 

@@ -529,6 +529,39 @@ class MeshDatabase:
                 (node_id, action, role, template_hash, operator, details),
             )
 
+    def get_provisioning_log_for_node(
+        self,
+        node_id: str,
+        action_filter: Optional[str] = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Get recent provisioning log entries for a device.
+
+        Args:
+            node_id: Device to query.
+            action_filter: Optional action type filter (e.g. 'drift_remediation').
+            limit: Max entries to return (default 10).
+
+        Returns:
+            List of log entry dicts, newest first.
+        """
+        with self.connection() as conn:
+            if action_filter:
+                rows = conn.execute(
+                    """SELECT * FROM provisioning_log
+                       WHERE node_id = ? AND action = ?
+                       ORDER BY timestamp DESC LIMIT ?""",
+                    (node_id, action_filter, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT * FROM provisioning_log
+                       WHERE node_id = ?
+                       ORDER BY timestamp DESC LIMIT ?""",
+                    (node_id, limit),
+                ).fetchall()
+            return [dict(r) for r in rows]
+
     def save_config_template(
         self, role: str, yaml_content: str, config_hash: str, version: str = "1"
     ) -> None:

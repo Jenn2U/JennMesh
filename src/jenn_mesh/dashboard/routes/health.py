@@ -111,7 +111,23 @@ async def health_check(request: Request) -> dict:
     else:
         components["config_queue"] = {"status": "unavailable"}
 
-    # 8. Uptime
+    # 8. Drift remediation
+    drm = getattr(request.app.state, "drift_remediation_manager", None)
+    if drm is not None:
+        try:
+            cm = __import__("jenn_mesh.core.config_manager", fromlist=["ConfigManager"])
+            config_mgr = cm.ConfigManager(db)
+            drifted = config_mgr.get_drift_report()
+            components["drift_remediation"] = {
+                "status": "healthy",
+                "drifted_device_count": len(drifted),
+            }
+        except Exception as exc:
+            components["drift_remediation"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["drift_remediation"] = {"status": "unavailable"}
+
+    # 9. Uptime
     startup_time = getattr(request.app.state, "startup_time", None)
     if startup_time is not None:
         uptime = (datetime.now(timezone.utc) - startup_time).total_seconds()

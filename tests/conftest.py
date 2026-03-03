@@ -215,6 +215,19 @@ def populated_db(db: MeshDatabase) -> MeshDatabase:
         delivered_at=(now - timedelta(minutes=5)).isoformat(),
     )
 
+    # Drift remediation seed data — !bbb22222 is drifted (config_hash ≠ template_hash)
+    _drift_yaml = "owner:\n  long_name: GW-Golden\nradio:\n  role: CLIENT_MUTE\n"
+    from jenn_mesh.models.device import ConfigHash
+
+    _drift_template_hash = ConfigHash.compute(_drift_yaml)
+    db.save_config_template("gateway-node", _drift_yaml, _drift_template_hash)
+    with db.connection() as conn:
+        conn.execute(
+            """UPDATE devices SET template_role = ?, config_hash = ?, template_hash = ?
+               WHERE node_id = ?""",
+            ("gateway-node", "drifted-hash-999", _drift_template_hash, "!bbb22222"),
+        )
+
     # Firmware compatibility matrix seed data
     db.upsert_firmware_compat("heltec_v3", "2.5.6", "COMPATIBLE")
     db.upsert_firmware_compat("heltec_v3", "2.5.0", "COMPATIBLE")

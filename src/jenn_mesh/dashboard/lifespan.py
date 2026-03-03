@@ -92,6 +92,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             logger.exception("Recovery manager init failed — recovery features unavailable")
 
+    # Best-effort drift remediation manager init (wires config_queue for retry-on-fail)
+    if (
+        not hasattr(app.state, "drift_remediation_manager")
+        and getattr(app.state, "db", None) is not None
+    ):
+        try:
+            from jenn_mesh.core.drift_remediation import DriftRemediationManager
+
+            config_queue = getattr(app.state, "config_queue_manager", None)
+            app.state.drift_remediation_manager = DriftRemediationManager(
+                db=app.state.db, config_queue=config_queue
+            )
+        except Exception:
+            logger.exception("Drift remediation init failed — remediation features unavailable")
+
     if not hasattr(app.state, "startup_time"):
         app.state.startup_time = datetime.now(timezone.utc)
 
