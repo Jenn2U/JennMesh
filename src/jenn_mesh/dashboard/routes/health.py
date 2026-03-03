@@ -141,7 +141,22 @@ async def health_check(request: Request) -> dict:
     else:
         components["failover"] = {"status": "unavailable"}
 
-    # 10. Uptime
+    # 10. Mesh watchdog
+    wd = getattr(request.app.state, "mesh_watchdog", None)
+    if wd is not None:
+        try:
+            wd_status = wd.get_status()
+            components["mesh_watchdog"] = {
+                "status": "healthy",
+                "total_cycles": wd_status["total_cycles"],
+                "enabled_checks": sum(1 for c in wd_status["checks"].values() if c["enabled"]),
+            }
+        except Exception as exc:
+            components["mesh_watchdog"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["mesh_watchdog"] = {"status": "unavailable"}
+
+    # 11. Uptime
     startup_time = getattr(request.app.state, "startup_time", None)
     if startup_time is not None:
         uptime = (datetime.now(timezone.utc) - startup_time).total_seconds()

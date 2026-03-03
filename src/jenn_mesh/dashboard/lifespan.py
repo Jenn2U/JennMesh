@@ -116,6 +116,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             logger.exception("Failover manager init failed — failover features unavailable")
 
+    # Best-effort mesh watchdog init
+    if not hasattr(app.state, "mesh_watchdog") and getattr(app.state, "db", None) is not None:
+        try:
+            from jenn_mesh.core.mesh_watchdog import MeshWatchdog, is_watchdog_enabled
+
+            if is_watchdog_enabled():
+                app.state.mesh_watchdog = MeshWatchdog(db=app.state.db)
+            else:
+                logger.info("Mesh watchdog disabled via MESH_WATCHDOG_ENABLED")
+        except Exception:
+            logger.exception("Mesh watchdog init failed — watchdog features unavailable")
+
     if not hasattr(app.state, "startup_time"):
         app.state.startup_time = datetime.now(timezone.utc)
 
@@ -131,9 +143,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             logger.exception("Failed to start config queue retry loop")
 
+    # Start mesh watchdog loop if watchdog available
+    _watchdog_task = None
+    wd_manager = getattr(app.state, "mesh_watchdog", None)
+    if wd_manager is not None:
+        try:
+            from jenn_mesh.core.mesh_watchdog import watchdog_loop_task
+
+            _watchdog_task = asyncio.create_task(watchdog_loop_task(wd_manager))
+            logger.info("Mesh watchdog loop started")
+        except Exception:
+            logger.exception("Failed to start mesh watchdog loop")
+
     logger.info("JennMesh dashboard started (v%s)", __version__)
 
     yield
+
+    # Cancel mesh watchdog loop
+    if _watchdog_task is not None:
+        _watchdog_task.cancel()
+        try:
+            await _watchdog_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("Mesh watchdog loop stopped")
 
     # Cancel config queue retry loop
     if _retry_task is not None:

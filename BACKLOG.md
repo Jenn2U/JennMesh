@@ -381,8 +381,17 @@ RemoteAdmin, and auto-reverts when the failed node recovers.
 **Requires**: MESH-016 (topology mapping), MESH-025 (remote admin), MESH-028 (config queue).
 65 new tests (753 total).
 
-### MESH-030: Mesh Watchdog → Moved to v0.4.0
-*See v0.4.0 section.*
+### MESH-030: Mesh Watchdog
+**Priority**: P2 | **Effort**: L | **Status**: ✅ Done
+Background asyncio watchdog that periodically invokes 8 existing health checks
+(offline nodes, stale heartbeats, low battery, health scoring, config drift,
+topology SPOF, failover recovery, baseline deviation) on staggered intervals
+(2-10 min). Auto-creates and auto-resolves alerts when conditions change.
+Audit trail in `watchdog_runs` DB table. Schema v9.
+- 3 new API endpoints: GET /watchdog/status, GET /watchdog/history, POST /watchdog/trigger/{check}
+- Health endpoint includes `mesh_watchdog` component
+- Disable via `MESH_WATCHDOG_ENABLED=false`
+47 new tests (800 total).
 
 ### MESH-031: Edge Node Heartbeat via Mesh
 **Priority**: P1 | **Effort**: M | **Status**: ✅ Done
@@ -431,7 +440,7 @@ Dashboard: probability heatmap overlay on Lost Node Locator map.
 → See v0.2.0 section for full description.
 
 ### MESH-030: Mesh Watchdog (moved from v0.3.0)
-**Priority**: P2 | **Effort**: L | **Status**: Backlog
+**Priority**: P2 | **Effort**: L | **Status**: ✅ Done
 → See v0.3.0 section for full description.
 
 ### MESH-024: Dashboard — Topology Visualization

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator, Optional
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 SCHEMA_SQL = """
 -- Device registry: every known radio in the fleet
@@ -267,6 +267,18 @@ CREATE INDEX IF NOT EXISTS idx_failover_comp_event
 CREATE INDEX IF NOT EXISTS idx_failover_comp_node
     ON failover_compensations(comp_node_id);
 
+-- Watchdog runs: audit trail for periodic health checks
+CREATE TABLE IF NOT EXISTS watchdog_runs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    check_name      TEXT NOT NULL,
+    started_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at    TEXT,
+    result_summary  TEXT,
+    error           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_watchdog_runs_check
+    ON watchdog_runs(check_name, started_at DESC);
+
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version         INTEGER NOT NULL,
@@ -311,6 +323,7 @@ class MeshDatabase:
                     # v5 → v6: recovery_commands table (CREATE IF NOT EXISTS only)
                     # v6 → v7: config_queue table (CREATE IF NOT EXISTS only)
                     # v7 → v8: failover_events + failover_compensations (CREATE IF NOT EXISTS only)
+                    # v8 → v9: watchdog_runs table (CREATE IF NOT EXISTS only)
                     if current_version < 4:
                         # Add new columns (safe: ALTER TABLE ADD COLUMN is idempotent-ish,
                         # but we guard with version check to avoid "duplicate column" errors)
@@ -1386,3 +1399,53 @@ class MeshDatabase:
                        WHERE id = ?""",
                     (status, error, comp_id),
                 )
+
+    # ── Watchdog runs ─────────────────────────────────────────────────
+
+    def create_watchdog_run(self, check_name: str) -> int:
+        """Record the start of a watchdog check. Returns the run ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                "INSERT INTO watchdog_runs (check_name) VALUES (?)",
+                (check_name,),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def complete_watchdog_run(
+        self,
+        run_id: int,
+        *,
+        result_summary: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """Mark a watchdog run as completed with optional result or error."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self.connection() as conn:
+            conn.execute(
+                """UPDATE watchdog_runs
+                   SET completed_at = ?, result_summary = ?, error = ?
+                   WHERE id = ?""",
+                (now_iso, result_summary, error, run_id),
+            )
+
+    def get_recent_watchdog_runs(
+        self,
+        check_name: Optional[str] = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """Fetch recent watchdog runs, optionally filtered by check name."""
+        with self.connection() as conn:
+            if check_name:
+                rows = conn.execute(
+                    """SELECT * FROM watchdog_runs
+                       WHERE check_name = ?
+                       ORDER BY started_at DESC LIMIT ?""",
+                    (check_name, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT * FROM watchdog_runs
+                       ORDER BY started_at DESC LIMIT ?""",
+                    (limit,),
+                ).fetchall()
+            return [dict(r) for r in rows]

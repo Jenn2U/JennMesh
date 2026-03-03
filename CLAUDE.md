@@ -7,7 +7,7 @@ JennMesh is the centralized Meshtastic LoRa radio fleet management service for t
 **Version**: 0.2.0
 **Language**: Python 3.11+
 **Type**: Standalone mesh management service with web dashboard + agent daemon + CLI tools
-**Tests**: 753 (pytest) — target 80%+
+**Tests**: 800 (pytest) — target 80%+
 
 ## Architecture
 
@@ -76,13 +76,15 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/core/failover_manager.py` | FailoverManager: assess, execute, revert, cancel, check_recoveries |
 | `src/jenn_mesh/models/failover.py` | FailoverEvent, FailoverCompensation, ImpactAssessment models + enums |
 | `src/jenn_mesh/dashboard/routes/failover.py` | 7 API endpoints (assess, execute, revert, cancel, status, active, check-recoveries) |
+| `src/jenn_mesh/core/mesh_watchdog.py` | MeshWatchdog: 8-check periodic health monitor with auto-resolve + audit trail |
+| `src/jenn_mesh/dashboard/routes/watchdog.py` | 3 API endpoints (status, history, trigger) |
 | `src/jenn_mesh/dashboard/app.py` | FastAPI dashboard application factory |
 | `src/jenn_mesh/dashboard/middleware.py` | Security headers, request logging, rate limiting, CORS |
 | `src/jenn_mesh/dashboard/error_handlers.py` | Global exception handlers (HTTP, validation, unhandled) |
 | `src/jenn_mesh/dashboard/lifespan.py` | Application startup/shutdown lifecycle |
 | `src/jenn_mesh/dashboard/logging_config.py` | Rotating file + console logging configuration |
 | `src/jenn_mesh/cli.py` | CLI entry point with subcommands |
-| `src/jenn_mesh/db.py` | SQLite WAL schema v8 (devices, positions, alerts, configs, heartbeats, emergency_broadcasts, recovery_commands, config_queue, failover_events, failover_compensations) |
+| `src/jenn_mesh/db.py` | SQLite WAL schema v9 (devices, positions, alerts, configs, heartbeats, emergency_broadcasts, recovery_commands, config_queue, failover_events, failover_compensations, watchdog_runs) |
 | `configs/*.yaml` | Golden Meshtastic config templates per device role |
 | `deploy/systemd/*.service` | 4 systemd unit files (broker, dashboard, agent, sentry) |
 | `deploy/scripts/install.sh` | 9-phase idempotent installer for ARM64 Linux |
@@ -154,7 +156,7 @@ Edge nodes send periodic heartbeat text messages over LoRa radio so JennMesh can
 - Interval: 120 seconds (configurable via `--heartbeat-interval`)
 - Services: comma-separated `name:status` pairs (e.g., `edge:ok,mqtt:down`)
 
-### Database (Schema v4 → v5 adds emergency_broadcasts, v5 → v6 adds recovery_commands, v6 → v7 adds config_queue, v7 → v8 adds failover_events + failover_compensations)
+### Database (Schema v4 → v5 adds emergency_broadcasts, v5 → v6 adds recovery_commands, v6 → v7 adds config_queue, v7 → v8 adds failover_events + failover_compensations, v8 → v9 adds watchdog_runs)
 - `mesh_heartbeats` table — stores every received heartbeat
 - `devices.mesh_status` — `"reachable"` | `"unreachable"` | `"unknown"`
 - `devices.last_mesh_heartbeat` — ISO timestamp of last heartbeat
@@ -355,7 +357,7 @@ When a relay SPOF goes offline, FailoverManager assesses impact, identifies comp
 | `GET` | `/api/v1/failover/active` | List all active failovers |
 | `POST` | `/api/v1/failover/check-recoveries` | Auto-revert recovered nodes |
 
-### Database (Schema v8)
+### Database (Schema v9)
 - `failover_events` — lifecycle tracking (active → reverted/cancelled/revert_failed)
 - `failover_compensations` — individual config changes with original_value for clean revert
 - 8 DB methods: create/get/list/update events, create/get/update compensations
@@ -363,9 +365,42 @@ When a relay SPOF goes offline, FailoverManager assesses impact, identifies comp
 ### Design Decisions
 - **set_remote_config() over apply_remote_config()** — single-key changes are faster over LoRa, more granular for tracking/reverting
 - **Battery guard** — skip candidates with battery < 30%
-- **No auto-detection loop** — `check_recoveries()` called explicitly; future enhancement could add periodic task
+- **No auto-detection loop** — `check_recoveries()` called explicitly; now also called by MeshWatchdog
 - **Separate router** — failover is operationally distinct from topology viewing
 - **Provisioning actions** — `failover_execute` and `failover_revert` follow existing audit trail convention
+
+## MESH-030: Mesh Watchdog
+
+Background asyncio task that periodically invokes 8 existing health checks on staggered intervals. No new detection logic — purely orchestration and auto-alert management.
+
+### Checks (8 total)
+| Check | Interval | Method | Auto-resolve |
+|-------|----------|--------|--------------|
+| offline_nodes | 2 min | DeviceRegistry.check_offline_nodes() | ✅ |
+| stale_heartbeats | 2 min | HeartbeatReceiver.check_stale_heartbeats() | — |
+| low_battery | 5 min | DeviceRegistry.check_low_battery() | ✅ |
+| health_scoring | 5 min | HealthScorer.score_fleet() | — |
+| config_drift | 10 min | ConfigManager.get_drift_report() | ✅ |
+| topology_spof | 10 min | TopologyManager.find_single_points_of_failure() | — (informational) |
+| failover_recovery | 5 min | FailoverManager.check_recoveries() | — (built-in) |
+| baseline_deviation | 10 min | BaselineManager.check_fleet_deviations() | ✅ |
+
+### API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/watchdog/status` | Current state (checks, intervals, cycle count) |
+| `GET` | `/api/v1/watchdog/history` | Audit trail (filter by check_name, limit) |
+| `POST` | `/api/v1/watchdog/trigger/{check_name}` | Manually trigger a specific check |
+
+### Database (Schema v9)
+- `watchdog_runs` — audit trail for every check execution (timing, results, errors)
+- 3 DB methods: create_watchdog_run, complete_watchdog_run, get_recent_watchdog_runs
+
+### Key Design
+- **Single loop, staggered checks** — one `asyncio.create_task()` with 60s sleep; each check tracks its own `_last_run`
+- **Auto-resolve** — resolves alerts when conditions clear (battery recovers, node comes online, drift fixed)
+- **Env disable** — `MESH_WATCHDOG_ENABLED=false` to disable entirely
+- **Check isolation** — failure in one check does not affect others
 
 ## CLI Commands
 
