@@ -157,6 +157,18 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
             app.state.alert_summarizer = AlertSummarizer(db=db)
         except Exception:
             pass  # graceful degradation — alert summarization unavailable
+        try:
+            from jenn_mesh.core.coverage_mapper import CoverageMapper
+
+            app.state.coverage_mapper = CoverageMapper(db=db)
+        except Exception:
+            pass  # graceful degradation — coverage mapping unavailable
+        try:
+            from jenn_mesh.core.fleet_analytics import FleetAnalytics
+
+            app.state.fleet_analytics = FleetAnalytics(db=db)
+        except Exception:
+            pass  # graceful degradation — fleet analytics unavailable
         app.state.startup_time = datetime.now(timezone.utc)
 
     # --- Error handlers ---
@@ -200,6 +212,8 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.geofencing import router as geofencing_router
     from jenn_mesh.dashboard.routes.anomaly import router as anomaly_router
     from jenn_mesh.dashboard.routes.alert_summary import router as alert_summary_router
+    from jenn_mesh.dashboard.routes.coverage import router as coverage_router
+    from jenn_mesh.dashboard.routes.analytics import router as analytics_router
 
     app.include_router(health_router)
     # Heartbeat router before fleet router — /fleet/mesh-status must match
@@ -224,6 +238,8 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(geofencing_router, prefix="/api/v1")
     app.include_router(anomaly_router, prefix="/api/v1")
     app.include_router(alert_summary_router, prefix="/api/v1")
+    app.include_router(coverage_router, prefix="/api/v1")
+    app.include_router(analytics_router, prefix="/api/v1")
 
     # Dashboard HTML pages
     @app.get("/")

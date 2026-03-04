@@ -52,6 +52,8 @@ class CoverageStats(BaseModel):
     total_samples: int = Field(default=0)
     unique_locations: int = Field(default=0, description="Distinct grid cells with data")
     avg_rssi: Optional[float] = Field(default=None)
+    min_rssi: Optional[float] = Field(default=None, description="Worst RSSI observed fleet-wide")
+    max_rssi: Optional[float] = Field(default=None, description="Best RSSI observed fleet-wide")
     coverage_area_estimate_m2: Optional[float] = Field(
         default=None, description="Approximate area covered (grid cells * cell area)"
     )
