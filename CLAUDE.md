@@ -4,10 +4,10 @@
 
 JennMesh is the centralized Meshtastic LoRa radio fleet management service for the JENN Intelligent Ecosystem. It handles initial radio provisioning, firmware tracking, channel/security configuration, MQTT relay setup, fleet health monitoring, and lost node location.
 
-**Version**: 0.5.0
+**Version**: 0.6.0
 **Language**: Python 3.11+
 **Type**: Standalone mesh management service with web dashboard + agent daemon + CLI tools
-**Tests**: 1310 (pytest) — target 80%+
+**Tests**: 1536 (pytest) — target 80%+
 
 ## Architecture
 
@@ -110,7 +110,23 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/dashboard/routes/provisioning_advisor.py` | 2 API endpoints (recommend, status) |
 | `src/jenn_mesh/dashboard/routes/lost_node_ai.py` | 2 API endpoints (ai-reasoning, status) |
 | `src/jenn_mesh/dashboard/routes/env_telemetry.py` | 5 API endpoints (node history, fleet summary, thresholds, alerts) |
-| `src/jenn_mesh/db.py` | SQLite WAL schema v13 (25 tables, ~100 DB methods) |
+| `src/jenn_mesh/models/api.py` | Shared API response models (PaginatedResponse, StatusResponse, ConfirmRequest) |
+| `src/jenn_mesh/models/encryption.py` | EncryptionStatus enum, DeviceEncryptionAudit, FleetEncryptionReport |
+| `src/jenn_mesh/models/webhook.py` | WebhookEventType, WebhookConfig, WebhookDeliveryStatus, WebhookPayload |
+| `src/jenn_mesh/models/notification.py` | NotificationChannelType, SlackConfig, TeamsConfig, EmailConfig, NotificationChannel, NotificationRule |
+| `src/jenn_mesh/models/partition.py` | PartitionEventType, PartitionEvent, PartitionStatus |
+| `src/jenn_mesh/models/bulk_ops.py` | BulkOperationType, BulkOperationStatus, TargetFilter, BulkOperationRequest, BulkOperationProgress |
+| `src/jenn_mesh/core/encryption_auditor.py` | EncryptionAuditor: PSK strength, channel audit, fleet encryption score |
+| `src/jenn_mesh/core/webhook_manager.py` | WebhookManager: CRUD, HMAC-SHA256 signing, dispatch, retry engine |
+| `src/jenn_mesh/core/notification_dispatcher.py` | NotificationDispatcher: multi-channel alert routing (Slack, Teams, Email) |
+| `src/jenn_mesh/core/partition_detector.py` | PartitionDetector: graph component analysis, relay placement recommendations |
+| `src/jenn_mesh/core/bulk_operation_manager.py` | BulkOperationManager: preview, execute, cancel, progress tracking |
+| `src/jenn_mesh/dashboard/routes/encryption.py` | 3 API endpoints (fleet audit, device audit, fleet score) |
+| `src/jenn_mesh/dashboard/routes/webhooks.py` | 7 API endpoints (CRUD + test fire + deliveries) |
+| `src/jenn_mesh/dashboard/routes/notifications.py` | 9 API endpoints (channel CRUD + test + rule CRUD) |
+| `src/jenn_mesh/dashboard/routes/partitions.py` | 3 API endpoints (status, events, event detail) |
+| `src/jenn_mesh/dashboard/routes/bulk_ops.py` | 5 API endpoints (preview, execute, progress, cancel, list) |
+| `src/jenn_mesh/db.py` | SQLite WAL schema v14 (31 tables, ~134 DB methods) |
 | `configs/*.yaml` | Golden Meshtastic config templates per device role |
 | `deploy/systemd/*.service` | 4 systemd unit files (broker, dashboard, agent, sentry) |
 | `deploy/scripts/install.sh` | 9-phase idempotent installer for ARM64 Linux |
@@ -159,12 +175,12 @@ The dashboard uses a layered middleware + error handling stack:
 - Unhandled Exception → 500 with `logger.exception()`, generic response
 
 ### Lifespan Management
-- `@asynccontextmanager` in `lifespan.py` — startup: logging, DB, ConfigQueueManager, ConfigRollbackManager, WorkbenchManager, BulkPushManager (wired to config queue + rollback), EmergencyBroadcastManager, RecoveryManager, DriftRemediationManager (wired to config queue + rollback), FailoverManager, MeshWatchdog, config queue retry loop, watchdog loop, startup_time
+- `@asynccontextmanager` in `lifespan.py` — startup: logging, DB, ConfigQueueManager, ConfigRollbackManager, WorkbenchManager, BulkPushManager (wired to config queue + rollback), EmergencyBroadcastManager, RecoveryManager, DriftRemediationManager (wired to config queue + rollback), FailoverManager, MeshWatchdog, WebhookManager, NotificationDispatcher (wired to webhook_manager), PartitionDetector, BulkOperationManager, EncryptionAuditor, config queue retry loop, watchdog loop, webhook delivery loop, startup_time
 - Graceful degradation: if DB init fails, dashboard runs degraded (health reports "degraded")
 - Test DB injection: `create_app(db=test_db)` sets state directly (httpx ASGITransport doesn't fire lifespan)
 
 ### Health Endpoint (`/health`)
-- Components: database (schema_version), workbench, bulk_push, mesh_heartbeats, emergency_broadcasts, recovery_commands, config_queue, drift_remediation, failover, mesh_watchdog, config_rollback, uptime_seconds
+- Components (17): database (schema_version), workbench, bulk_push, mesh_heartbeats, emergency_broadcasts, recovery_commands, config_queue, drift_remediation, failover, mesh_watchdog, config_rollback, sync_relay, encryption_audit, webhooks, notifications, partition_detection, bulk_operations, uptime_seconds
 - Overall status: "healthy" or "degraded" (if any component fails)
 
 ### Logging
@@ -190,7 +206,7 @@ Edge nodes send periodic heartbeat text messages over LoRa radio so JennMesh can
 - `SYNC_ACK|{session_id}|{seq}` / `SYNC_NACK|{session_id}|{seq}` — ACK/NACK
 - `SYNC_META|{node_id}|{key}|{value}` — single metadata update
 
-### Database (Schema v4 → v5 adds emergency_broadcasts, v5 → v6 adds recovery_commands, v6 → v7 adds config_queue, v7 → v8 adds failover_events + failover_compensations, v8 → v9 adds watchdog_runs, v9 → v10 adds config_snapshots, v10 → v11 adds crdt_sync_queue + crdt_sync_fragments + crdt_sync_log)
+### Database (Schema v4 → v5 adds emergency_broadcasts, v5 → v6 adds recovery_commands, v6 → v7 adds config_queue, v7 → v8 adds failover_events + failover_compensations, v8 → v9 adds watchdog_runs, v9 → v10 adds config_snapshots, v10 → v11 adds crdt_sync_queue + crdt_sync_fragments + crdt_sync_log, v13 → v14 adds webhooks + webhook_deliveries + notification_channels + notification_rules + partition_events + bulk_operations)
 - `mesh_heartbeats` table — stores every received heartbeat
 - `devices.mesh_status` — `"reachable"` | `"unreachable"` | `"unknown"`
 - `devices.last_mesh_heartbeat` — ISO timestamp of last heartbeat
@@ -405,9 +421,9 @@ When a relay SPOF goes offline, FailoverManager assesses impact, identifies comp
 
 ## MESH-030: Mesh Watchdog
 
-Background asyncio task that periodically invokes 9 health checks on staggered intervals. No new detection logic — purely orchestration and auto-alert management.
+Background asyncio task that periodically invokes 11 health checks on staggered intervals. No new detection logic — purely orchestration and auto-alert management.
 
-### Checks (9 total)
+### Checks (11 total)
 | Check | Interval | Method | Auto-resolve |
 |-------|----------|--------|--------------|
 | offline_nodes | 2 min | DeviceRegistry.check_offline_nodes() | ✅ |
@@ -419,6 +435,8 @@ Background asyncio task that periodically invokes 9 health checks on staggered i
 | failover_recovery | 5 min | FailoverManager.check_recoveries() | — (built-in) |
 | baseline_deviation | 10 min | BaselineManager.check_fleet_deviations() | ✅ |
 | post_push_failures | 2 min | ConfigRollbackManager.check_post_push_failures() | ✅ (auto-rollback) |
+| encryption_audit | 10 min | EncryptionAuditor.audit_fleet() | ✅ |
+| partition_detection | 5 min | PartitionDetector.check_partitions() | ✅ |
 
 ### API Endpoints
 | Method | Path | Description |
@@ -591,6 +609,197 @@ Gateway nodes with internet relay CRDT sync between Jenn Production and offline 
 
 ### Route Ordering Pattern (IMPORTANT)
 For routes with path parameters (e.g., `/environment/{node_id}`), specific routes MUST be registered before parameterized routes to avoid FastAPI capturing literals like "thresholds" as node_id values. Example in `env_telemetry.py`: `/environment/fleet/summary` and `/environment/thresholds` are defined before `/environment/{node_id}`.
+
+## v0.6.0 — Security, APIs & Notifications
+
+### API Versioning & OpenAPI Spec (MESH-064)
+
+The dashboard now serves a comprehensive OpenAPI spec with 15 tag groups:
+
+```python
+OPENAPI_TAGS = [
+    {"name": "Fleet Management", ...},
+    {"name": "Topology & Coverage", ...},
+    {"name": "Configuration", ...},
+    {"name": "Alerts & Monitoring", ...},
+    {"name": "AI & Intelligence", ...},
+    {"name": "Environmental", ...},
+    {"name": "Geofencing", ...},
+    {"name": "Emergency", ...},
+    {"name": "Recovery", ...},
+    {"name": "Webhooks", ...},
+    {"name": "Notifications", ...},
+    {"name": "Partitions", ...},
+    {"name": "Bulk Operations", ...},
+    {"name": "Admin", ...},
+    {"name": "Health", ...},
+]
+```
+
+- `GET /openapi.json` — full spec; `GET /docs` — Swagger UI; `GET /redoc` — ReDoc
+- Shared response models in `src/jenn_mesh/models/api.py`: `PaginatedResponse`, `StatusResponse`, `ConfirmRequest`
+- All routes use `/api/v1/` prefix consistently
+
+### Mesh Message Encryption Audit (MESH-058, `src/jenn_mesh/core/encryption_auditor.py`)
+
+Audits channel PSK strength across the fleet to detect weak/default encryption.
+
+- **PSK classification**: `unencrypted` (empty/default LONGFAST), `weak` (AES-128 or short key), `strong` (AES-256/32-byte key)
+- Fleet encryption score (0-100): weighted by channel importance (Primary channel weighted higher)
+- `ENCRYPTION_WEAK` alert type (WARNING severity) auto-created/resolved by MeshWatchdog
+
+#### API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/encryption/audit` | Fleet-wide encryption audit |
+| `GET` | `/api/v1/encryption/audit/{node_id}` | Per-device encryption audit |
+| `GET` | `/api/v1/encryption/score` | Fleet encryption score (0-100) |
+
+### External System Webhooks (MESH-044, `src/jenn_mesh/core/webhook_manager.py`)
+
+HTTP POST notifications for fleet events with HMAC-SHA256 signing, exponential backoff retry, and delivery tracking.
+
+#### Architecture
+1. Alert fires → `WebhookManager.dispatch_event()` matches event type to subscribed webhooks
+2. For each match → enqueue delivery in `webhook_deliveries` table
+3. Background `webhook_delivery_loop_task` calls `process_pending_deliveries()` every 30s
+4. Each delivery: sign payload (HMAC-SHA256), POST to webhook URL, track HTTP status
+5. Failure → exponential backoff retry (30s → 60s → 120s → 240s → 480s → 960s)
+6. After 5 failed attempts → mark as permanently failed
+
+#### Event Types (10)
+`node_online`, `node_offline`, `alert_created`, `alert_resolved`, `geofence_entry`, `geofence_exit`, `emergency_broadcast`, `partition_detected`, `bulk_op_completed`, `test`
+
+#### Payload Format
+```json
+{
+  "event_type": "alert_created",
+  "source": "jenn-mesh",
+  "timestamp": "2026-03-04T12:00:00Z",
+  "data": { ... }
+}
+```
+
+#### HMAC-SHA256 Signing
+`X-JennMesh-Signature: sha256={hex_digest}` — computed from `HMAC(secret, body)` (GitHub/Stripe pattern).
+
+#### API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/webhooks` | Create webhook |
+| `GET` | `/api/v1/webhooks` | List webhooks |
+| `GET` | `/api/v1/webhooks/{id}` | Get webhook |
+| `PUT` | `/api/v1/webhooks/{id}` | Update webhook |
+| `DELETE` | `/api/v1/webhooks/{id}` | Delete webhook |
+| `POST` | `/api/v1/webhooks/{id}/test` | Test fire |
+| `GET` | `/api/v1/webhooks/{id}/deliveries` | List deliveries |
+
+#### Database (Schema v14)
+- `webhooks` — HTTP POST targets (name, url, secret, event_types, is_active)
+- `webhook_deliveries` — delivery attempt log (webhook_id, event_type, payload_json, status, attempt_count, http_status, next_retry_at)
+- 12 DB methods: create/get/list/update/delete webhook, create/update/get_pending/list deliveries, prune old deliveries
+
+### Notification Channels (MESH-060, `src/jenn_mesh/core/notification_dispatcher.py`)
+
+Multi-channel alert routing layer on top of the webhook delivery engine.
+
+#### Architecture
+1. Alert fires → `NotificationDispatcher.notify(alert_type, severity, data)`
+2. Dispatcher queries `notification_rules` for matching `(alert_type, severity) → channel_ids[]`
+3. For each matching channel → format per type (Slack Block Kit, Teams Adaptive Card, Email SMTP)
+4. Delegate HTTP channels (Slack/Teams) to webhook delivery engine; SMTP via smtplib
+
+#### Channel Types
+- **Slack**: Block Kit with color-coded severity (critical=red, warning=amber, info=teal)
+- **Teams**: Adaptive Card (Office 365 incoming webhook)
+- **Email**: SMTP with HTML body
+- **Webhook**: Raw JSON HTTP POST (delegates to WebhookManager)
+
+#### Notification Rules
+`notification_rules` maps `(alert_types[], severities[]) → channel_ids[]`. Empty `alert_types` = wildcard (match all). Empty `severities` = wildcard (match all).
+
+#### API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/notifications/channels` | Create channel |
+| `GET` | `/api/v1/notifications/channels` | List channels |
+| `GET` | `/api/v1/notifications/channels/{id}` | Get channel |
+| `PUT` | `/api/v1/notifications/channels/{id}` | Update channel |
+| `DELETE` | `/api/v1/notifications/channels/{id}` | Delete channel |
+| `POST` | `/api/v1/notifications/channels/{id}/test` | Test fire |
+| `POST` | `/api/v1/notifications/rules` | Create rule |
+| `GET` | `/api/v1/notifications/rules` | List rules |
+| `DELETE` | `/api/v1/notifications/rules/{id}` | Delete rule |
+
+#### Database (Schema v14)
+- `notification_channels` — channel configs (name, type, config_json, is_active)
+- `notification_rules` — routing rules (name, alert_types, severities, channel_ids)
+- 10 DB methods: create/get/list/update/delete channel, create/get/list/update/delete rule, get_channels_for_alert
+
+### Mesh Network Partitioning Detection (MESH-055, `src/jenn_mesh/core/partition_detector.py`)
+
+Detects when the mesh network splits into disconnected components, stores topology diffs, and recommends relay placement.
+
+#### Architecture
+1. MeshWatchdog calls `PartitionDetector.check_partitions()` every 5 minutes
+2. Reuses `TopologyManager._find_connected_components()` graph algorithm
+3. Compares component count with previous snapshot
+4. If partitioned (>1 component): creates `NETWORK_PARTITION` alert (CRITICAL) + stores `partition_event`
+5. If resolved (back to 1 component): creates `PARTITION_RESOLVED` alert (INFO) + resolves partition event
+6. Optional relay placement recommendation using GPS centroids between disconnected components
+
+#### Alert Types
+- `NETWORK_PARTITION` (CRITICAL) — mesh has split into multiple disconnected components
+- `PARTITION_RESOLVED` (INFO) — mesh connectivity restored to single component
+
+#### API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/partitions/status` | Current partition status |
+| `GET` | `/api/v1/partitions/events` | List partition events (filter by event_type) |
+| `GET` | `/api/v1/partitions/events/{id}` | Get partition event detail |
+
+#### Database (Schema v14)
+- `partition_events` — network split/merge history (event_type, component_count, components_json, relay_recommendation, resolved_at)
+- 6 DB methods: create/get/list/resolve partition events, get_latest_partition_event
+
+### Bulk Fleet Operations (MESH-059, `src/jenn_mesh/core/bulk_operation_manager.py`)
+
+Batch operations across the fleet with preview (dry-run), confirmation gate, progress tracking, and cancel support.
+
+#### Safety Gate
+- **Preview** (`POST /api/v1/bulk-ops/preview`): dry-run showing target count + warnings (always safe)
+- **Execute** (`POST /api/v1/bulk-ops/execute`): requires `dry_run: false, confirmed: true` — returns 400 otherwise
+- Factory reset operations get an explicit warning in preview response
+
+#### Operation Types
+`reboot`, `config_push`, `psk_rotation`, `factory_reset`, `firmware_update`
+
+#### Target Filtering
+`TargetFilter` supports: `all_devices: true`, `role: "ROUTER"`, `node_ids: ["!abc"]`, `hardware_model: "tbeam"` — filters are AND-combined. Empty filter `{}` returns ALL devices.
+
+#### API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/bulk-ops/preview` | Preview targets + warnings (dry-run) |
+| `POST` | `/api/v1/bulk-ops/execute` | Execute operation (`confirmed: true` required) |
+| `GET` | `/api/v1/bulk-ops/{op_id}` | Get operation progress |
+| `POST` | `/api/v1/bulk-ops/{op_id}/cancel` | Cancel running operation |
+| `GET` | `/api/v1/bulk-ops` | List operations (filter by status) |
+
+#### Database (Schema v14)
+- `bulk_operations` — batch operation tracking (operation_type, target_filter, target_node_ids, parameters, status, total_targets, completed_count, failed_count, result_json)
+- 6 DB methods: create/get/list/update/cancel bulk operations
+
+### Schema v14 Summary (6 New Tables, ~34 New Methods)
+| Table | Purpose | Methods |
+|-------|---------|---------|
+| `webhooks` | HTTP POST targets | 5 CRUD |
+| `webhook_deliveries` | Delivery log + retry | 7 |
+| `notification_channels` | Slack/Teams/Email configs | 5 CRUD |
+| `notification_rules` | Alert → channel routing | 5 CRUD + get_channels_for_alert |
+| `partition_events` | Network split/merge history | 6 |
+| `bulk_operations` | Batch fleet actions | 6 |
 
 ## CLI Commands
 

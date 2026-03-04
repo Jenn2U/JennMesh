@@ -238,4 +238,68 @@ def populated_db(db: MeshDatabase) -> MeshDatabase:
     db.upsert_firmware_compat("rak4631", "2.5.0", "COMPATIBLE")
     db.upsert_firmware_compat("t_echo", "2.4.0", "INCOMPATIBLE", "Known display issue")
 
+    # ── v0.6.0 seed data ─────────────────────────────────────────────
+
+    # Webhook seed data (1 active, 1 inactive)
+    wh1_id = db.create_webhook(
+        name="Fleet Events",
+        url="https://hooks.example.com/fleet",
+        secret="test-secret-256bit",
+        event_types='["alert_created", "alert_resolved", "node_offline"]',
+    )
+    wh2_id = db.create_webhook(
+        name="Disabled Hook",
+        url="https://hooks.example.com/old",
+        secret="",
+        event_types="[]",
+    )
+    db.update_webhook(wh2_id, is_active=False)
+
+    # Webhook delivery seed data (1 pending, 1 delivered)
+    d1_id = db.create_webhook_delivery(
+        webhook_id=wh1_id,
+        event_type="alert_created",
+        payload_json='{"event_type":"alert_created","data":{"node_id":"!ccc33333"}}',
+    )
+    d2_id = db.create_webhook_delivery(
+        webhook_id=wh1_id,
+        event_type="node_offline",
+        payload_json='{"event_type":"node_offline","data":{"node_id":"!ccc33333"}}',
+    )
+    db.update_webhook_delivery(
+        d2_id,
+        status="delivered",
+        http_status=200,
+        delivered_at=(now - timedelta(minutes=2)).isoformat(),
+        increment_attempt=True,
+    )
+
+    # Notification channel seed data (Slack active, Email inactive)
+    import json
+
+    ch1_id = db.create_notification_channel(
+        name="Ops Slack",
+        channel_type="slack",
+        config_json=json.dumps({"webhook_url": "https://hooks.slack.com/test"}),
+    )
+    ch2_id = db.create_notification_channel(
+        name="Admin Email",
+        channel_type="email",
+        config_json=json.dumps({
+            "smtp_host": "smtp.example.com",
+            "smtp_port": 587,
+            "from_address": "alerts@jenn2u.ai",
+            "to_addresses": ["admin@jenn2u.ai"],
+        }),
+    )
+    db.update_notification_channel(ch2_id, is_active=False)
+
+    # Notification rule seed data (critical alerts → Slack)
+    db.create_notification_rule(
+        name="Critical to Slack",
+        alert_types=json.dumps(["low_battery", "NETWORK_PARTITION"]),
+        severities=json.dumps(["critical", "warning"]),
+        channel_ids=json.dumps([ch1_id]),
+    )
+
     return db

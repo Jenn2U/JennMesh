@@ -54,7 +54,7 @@ def _resolve_targets(db: MeshDatabase, target_filter: dict) -> list[str]:
     # Apply AND filters
     hw = target_filter.get("hardware_model")
     if hw:
-        devices = [d for d in devices if d.get("hardware_model") == hw]
+        devices = [d for d in devices if d.get("hw_model") == hw]
 
     fw = target_filter.get("firmware_version")
     if fw:
@@ -121,7 +121,7 @@ class BulkOperationManager:
             operation_type=op_type,
             target_node_ids=json.dumps(targets),
             total_targets=len(targets),
-            parameters_json=json.dumps(request.get("parameters", {})),
+            parameters=json.dumps(request.get("parameters", {})),
             status="preview",
         )
 
@@ -165,7 +165,7 @@ class BulkOperationManager:
             operation_type=op_type,
             target_node_ids=json.dumps(targets),
             total_targets=len(targets),
-            parameters_json=json.dumps(request.get("parameters", {})),
+            parameters=json.dumps(request.get("parameters", {})),
             status="running",
         )
 
@@ -249,7 +249,7 @@ class BulkOperationManager:
                     completed_count=completed,
                     failed_count=failed,
                     skipped_count=skipped,
-                    results_json=json.dumps(results),
+                    result_json=json.dumps(results),
                 )
 
             # Mark completed
@@ -260,7 +260,7 @@ class BulkOperationManager:
                 completed_count=completed,
                 failed_count=failed,
                 skipped_count=skipped,
-                results_json=json.dumps(results),
+                result_json=json.dumps(results),
                 completed_at=datetime.now(timezone.utc).isoformat(),
             )
 

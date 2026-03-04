@@ -1,7 +1,7 @@
 {
   "project": {
     "name": "jenn-mesh",
-    "version": "0.3.0",
+    "version": "0.6.0",
     "language": "python",
     "type": "mesh-management-service"
   },

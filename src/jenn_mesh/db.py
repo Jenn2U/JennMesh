@@ -464,14 +464,16 @@ CREATE TABLE IF NOT EXISTS notification_rules (
 
 -- Partition events: network split/merge history with topology snapshots
 CREATE TABLE IF NOT EXISTS partition_events (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_type      TEXT NOT NULL,
-    component_count INTEGER NOT NULL DEFAULT 0,
-    components_json TEXT NOT NULL DEFAULT '[]',
-    topology_before TEXT,
-    topology_after  TEXT,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    resolved_at     TEXT
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type               TEXT NOT NULL,
+    component_count          INTEGER NOT NULL DEFAULT 0,
+    components_json          TEXT NOT NULL DEFAULT '[]',
+    previous_component_count INTEGER,
+    relay_recommendation     TEXT,
+    topology_before          TEXT,
+    topology_after           TEXT,
+    created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_at              TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_partition_events_time
     ON partition_events(created_at DESC);
@@ -2485,6 +2487,8 @@ class MeshDatabase:
         event_type: str,
         component_count: int,
         components_json: str = "[]",
+        previous_component_count: Optional[int] = None,
+        relay_recommendation: Optional[str] = None,
         topology_before: Optional[str] = None,
         topology_after: Optional[str] = None,
     ) -> int:
@@ -2493,9 +2497,11 @@ class MeshDatabase:
             cursor = conn.execute(
                 """INSERT INTO partition_events
                    (event_type, component_count, components_json,
+                    previous_component_count, relay_recommendation,
                     topology_before, topology_after)
-                   VALUES (?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (event_type, component_count, components_json,
+                 previous_component_count, relay_recommendation,
                  topology_before, topology_after),
             )
             return cursor.lastrowid  # type: ignore[return-value]
@@ -2508,13 +2514,21 @@ class MeshDatabase:
             ).fetchone()
             return dict(row) if row else None
 
-    def list_partition_events(self, limit: int = 50) -> list[dict]:
-        """List partition events, most recent first."""
+    def list_partition_events(
+        self, limit: int = 50, event_type: Optional[str] = None
+    ) -> list[dict]:
+        """List partition events, most recent first. Optionally filter by event_type."""
         with self.connection() as conn:
-            rows = conn.execute(
-                "SELECT * FROM partition_events ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            if event_type:
+                rows = conn.execute(
+                    "SELECT * FROM partition_events WHERE event_type = ? ORDER BY created_at DESC LIMIT ?",
+                    (event_type, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM partition_events ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
             return [dict(r) for r in rows]
 
     def resolve_partition_event(self, event_id: int) -> bool:
@@ -2548,16 +2562,17 @@ class MeshDatabase:
         parameters: str = "{}",
         total_targets: int = 0,
         operator: str = "dashboard",
+        status: str = "pending",
     ) -> int:
         """Create a bulk operation. Returns the operation ID."""
         with self.connection() as conn:
             cursor = conn.execute(
                 """INSERT INTO bulk_operations
                    (operation_type, target_filter, target_node_ids, parameters,
-                    total_targets, operator)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                    total_targets, operator, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (operation_type, target_filter, target_node_ids, parameters,
-                 total_targets, operator),
+                 total_targets, operator, status),
             )
             return cursor.lastrowid  # type: ignore[return-value]
 
@@ -2569,13 +2584,21 @@ class MeshDatabase:
             ).fetchone()
             return dict(row) if row else None
 
-    def list_bulk_operations(self, limit: int = 50) -> list[dict]:
-        """List bulk operations, most recent first."""
+    def list_bulk_operations(
+        self, limit: int = 50, status: Optional[str] = None
+    ) -> list[dict]:
+        """List bulk operations, most recent first. Optionally filter by status."""
         with self.connection() as conn:
-            rows = conn.execute(
-                "SELECT * FROM bulk_operations ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM bulk_operations WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+                    (status, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM bulk_operations ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
             return [dict(r) for r in rows]
 
     def update_bulk_operation(
