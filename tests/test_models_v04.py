@@ -49,9 +49,9 @@ class TestNewAlertTypes:
         for at in AlertType:
             assert at in ALERT_SEVERITY_MAP, f"{at} missing from ALERT_SEVERITY_MAP"
 
-    def test_total_alert_types_is_28(self):
-        """22 existing + 6 new = 28 total."""
-        assert len(AlertType) == 28
+    def test_total_alert_types_is_31(self):
+        """22 existing + 6 v0.4.0 + 1 v0.5.0 + 3 v0.6.0 = 31 total (1 was already counted)."""
+        assert len(AlertType) == 31
 
 
 class TestGeoFenceModel:

@@ -5,6 +5,21 @@ All notable changes to JennMesh will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-03-04
+
+### Added
+
+- **API Versioning & OpenAPI Spec** (MESH-064): 15 OpenAPI tag groups organizing 32 routers; Swagger UI at `/docs`, ReDoc at `/redoc`; production + local dev server metadata; shared API response models (`PaginatedResponse`, `StatusResponse`, `ConfirmRequest`)
+- **Mesh Message Encryption Audit** (MESH-058): `EncryptionAuditor` audits fleet PSKs against weak/default values (LONGFAST `0x01`, empty PSKs); fleet encryption score (0-100); 3 API endpoints (`/encryption/*`); watchdog check #11 with `ENCRYPTION_WEAK` alerts + auto-resolve
+- **External System Webhooks** (MESH-044): `WebhookManager` with HMAC-SHA256 signing, exponential backoff retry (30s to 16min, 5 attempts); async delivery loop; 7 API endpoints (`/webhooks/*`); test-fire endpoint verification; delivery history
+- **Notification Channels** (MESH-060): `NotificationDispatcher` with Slack Block Kit, Teams Adaptive Card, Email formatters; 9 API endpoints (`/notifications/*`); notification rules map `(alert_type, severity) -> channel_ids[]`; channel CRUD + test-fire + rule CRUD
+- **Mesh Network Partitioning Detection** (MESH-055): `PartitionDetector` reuses `TopologyManager.find_connected_components()` graph algorithm; GPS centroid relay placement recommendations; 3 API endpoints (`/partitions/*`); watchdog check #12; `NETWORK_PARTITION` (critical) + `PARTITION_RESOLVED` (info) alerts
+- **Bulk Fleet Operations** (MESH-059): `BulkOperationManager` with preview (dry-run), execute, cancel, progress tracking; 5 API endpoints (`/bulk-ops/*`); safety gate: `dry_run=True` default, requires explicit `confirmed=True`; supports config_push, reboot, psk_rotation, firmware_update, factory_reset
+- DB schema v14: 6 new tables (`webhooks`, `webhook_deliveries`, `notification_channels`, `notification_rules`, `partition_events`, `bulk_operations`) with ~34 CRUD methods
+- 3 new AlertType values: `ENCRYPTION_WEAK` (warning), `NETWORK_PARTITION` (critical), `PARTITION_RESOLVED` (info) — 31 total
+- Health endpoint: 17 component checks (was 12); watchdog: 12 checks (was 10)
+- 144 API routes (was 119)
+
 ## [0.5.0] - 2026-03-03
 
 ### Added

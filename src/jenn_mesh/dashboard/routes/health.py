@@ -186,7 +186,80 @@ async def health_check(request: Request) -> dict:
     else:
         components["sync_relay"] = {"status": "unavailable"}
 
-    # 13. Uptime
+    # 13. Encryption audit
+    enc_auditor = getattr(request.app.state, "encryption_auditor", None)
+    if enc_auditor is not None:
+        try:
+            score = enc_auditor.get_fleet_encryption_score()
+            components["encryption_audit"] = {
+                "status": "healthy",
+                "fleet_score": score,
+            }
+        except Exception as exc:
+            components["encryption_audit"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["encryption_audit"] = {"status": "unavailable"}
+
+    # 14. Webhooks
+    wh_mgr = getattr(request.app.state, "webhook_manager", None)
+    if wh_mgr is not None:
+        try:
+            active_hooks = wh_mgr.list_webhooks(active_only=True)
+            components["webhooks"] = {
+                "status": "healthy",
+                "active_webhook_count": len(active_hooks),
+            }
+        except Exception as exc:
+            components["webhooks"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["webhooks"] = {"status": "unavailable"}
+
+    # 15. Notifications
+    nd = getattr(request.app.state, "notification_dispatcher", None)
+    if nd is not None:
+        try:
+            channels = db.list_notification_channels(active_only=True) if db else []
+            rules = db.list_notification_rules(active_only=True) if db else []
+            components["notifications"] = {
+                "status": "healthy",
+                "active_channel_count": len(channels),
+                "active_rule_count": len(rules),
+            }
+        except Exception as exc:
+            components["notifications"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["notifications"] = {"status": "unavailable"}
+
+    # 16. Partition detection
+    pd = getattr(request.app.state, "partition_detector", None)
+    if pd is not None:
+        try:
+            status = pd.get_partition_status()
+            components["partition_detection"] = {
+                "status": "healthy",
+                "is_partitioned": status.get("is_partitioned", False),
+                "component_count": status.get("component_count", 1),
+            }
+        except Exception as exc:
+            components["partition_detection"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["partition_detection"] = {"status": "unavailable"}
+
+    # 17. Bulk operations
+    bom = getattr(request.app.state, "bulk_operation_manager", None)
+    if bom is not None:
+        try:
+            running_ops = bom.list_operations(limit=10, status="running")
+            components["bulk_operations"] = {
+                "status": "healthy",
+                "running_operation_count": len(running_ops),
+            }
+        except Exception as exc:
+            components["bulk_operations"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["bulk_operations"] = {"status": "unavailable"}
+
+    # 18. Uptime
     startup_time = getattr(request.app.state, "startup_time", None)
     if startup_time is not None:
         uptime = (datetime.now(timezone.utc) - startup_time).total_seconds()

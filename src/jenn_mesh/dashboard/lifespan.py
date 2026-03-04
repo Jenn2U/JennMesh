@@ -152,6 +152,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             logger.exception("Sync relay init failed — sync relay features unavailable")
 
+    # Best-effort webhook manager init
+    if not hasattr(app.state, "webhook_manager") and getattr(app.state, "db", None) is not None:
+        try:
+            from jenn_mesh.core.webhook_manager import WebhookManager
+
+            app.state.webhook_manager = WebhookManager(db=app.state.db)
+        except Exception:
+            logger.exception("Webhook manager init failed — webhook features unavailable")
+
+    # Best-effort notification dispatcher init (after webhook_manager so it can delegate)
+    if (
+        not hasattr(app.state, "notification_dispatcher")
+        and getattr(app.state, "db", None) is not None
+    ):
+        try:
+            from jenn_mesh.core.notification_dispatcher import NotificationDispatcher
+
+            wh_mgr = getattr(app.state, "webhook_manager", None)
+            app.state.notification_dispatcher = NotificationDispatcher(
+                db=app.state.db, webhook_manager=wh_mgr
+            )
+        except Exception:
+            logger.exception("Notification dispatcher init failed — notification features unavailable")
+
     if not hasattr(app.state, "startup_time"):
         app.state.startup_time = datetime.now(timezone.utc)
 
@@ -179,9 +203,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             logger.exception("Failed to start mesh watchdog loop")
 
+    # Start webhook delivery loop if webhook manager available
+    _webhook_task = None
+    wh_manager = getattr(app.state, "webhook_manager", None)
+    if wh_manager is not None:
+        try:
+            from jenn_mesh.core.webhook_manager import webhook_delivery_loop_task
+
+            _webhook_task = asyncio.create_task(webhook_delivery_loop_task(wh_manager))
+            logger.info("Webhook delivery loop started")
+        except Exception:
+            logger.exception("Failed to start webhook delivery loop")
+
     logger.info("JennMesh dashboard started (v%s)", __version__)
 
     yield
+
+    # Cancel webhook delivery loop
+    if _webhook_task is not None:
+        _webhook_task.cancel()
+        try:
+            await _webhook_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("Webhook delivery loop stopped")
 
     # Cancel mesh watchdog loop
     if _watchdog_task is not None:

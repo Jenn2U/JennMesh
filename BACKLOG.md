@@ -548,7 +548,7 @@ Dashboard: chat-style message viewer with send capability.
 MQTT bridge: messages also available on the dedicated broker for integration.
 
 ### MESH-044: External System Webhooks
-**Priority**: P2 | **Effort**: M | **Status**: Backlog
+**Priority**: P2 | **Effort**: M | **Status**: Done (v0.6.0)
 Configurable webhook notifications for fleet events:
   - Node online/offline transitions
   - Alert creation/resolution
@@ -643,7 +643,7 @@ Recommend: channel rebalancing, frequency/spreading factor adjustments.
 Dashboard: channel utilization heatmap (time × channel × load).
 
 ### MESH-055: Mesh Network Partitioning Detection
-**Priority**: P2 | **Effort**: L | **Status**: Backlog
+**Priority**: P2 | **Effort**: L | **Status**: Done (v0.6.0)
 Detect when the mesh splits into disconnected segments (network partition).
 Distinguish from simple node failure — "the north cluster is isolated" vs.
 "one node went offline."
@@ -669,7 +669,7 @@ Bidirectional: JennEdge health page shows "Radio: online, signal good, battery 7
 API: `GET /api/v1/fleet/{nodeId}/edge-association`.
 
 ### MESH-058: Mesh Message Encryption Audit
-**Priority**: P2 | **Effort**: S | **Status**: Backlog
+**Priority**: P2 | **Effort**: S | **Status**: Done (v0.6.0)
 Verify that all channels have encryption enabled (PSK ≠ default).
 Detect devices using the default "LongFast" unencrypted channel.
 Flag devices with `mqtt.encryption_enabled: false` (unencrypted MQTT relay).
@@ -677,7 +677,7 @@ Compliance alert: "Node !2A3B is transmitting unencrypted on channel 0."
 Dashboard: encryption status badge per device and fleet-wide encryption score.
 
 ### MESH-059: Bulk Fleet Operations
-**Priority**: P2 | **Effort**: L | **Status**: Backlog
+**Priority**: P2 | **Effort**: L | **Status**: Done (v0.6.0)
 Batch operations across multiple devices:
   - Push config to all devices matching a role
   - Rotate PSK for a channel across the entire fleet
@@ -687,7 +687,7 @@ Dashboard: multi-select + batch action buttons.
 Safety: dry-run preview → confirmation → execute with progress tracking.
 
 ### MESH-060: Notification Channels (Teams, Slack, Email)
-**Priority**: P2 | **Effort**: L | **Status**: Backlog
+**Priority**: P2 | **Effort**: L | **Status**: Done (v0.6.0)
 Following Jenn's notification channel pattern (Telegram retired in v6.3.0):
   - Slack webhooks (Block Kit)
   - Teams Adaptive Cards via webhook
@@ -721,7 +721,7 @@ Each scenario: pre-defined steps, one-click activation, progress tracking.
 Dashboard: DR playbook page with scenario cards.
 
 ### MESH-064: API Versioning & OpenAPI Spec
-**Priority**: P2 | **Effort**: S | **Status**: Backlog
+**Priority**: P2 | **Effort**: S | **Status**: Done (v0.6.0)
 OpenAPI 3.0 spec auto-generated from FastAPI.
 API versioning: `/api/v1/...` namespace.
 Swagger UI at `/docs` and ReDoc at `/redoc`.

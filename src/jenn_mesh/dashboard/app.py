@@ -49,6 +49,25 @@ class _NoCacheAPIMiddleware:
             await self.app(scope, receive, send)
 
 
+OPENAPI_TAGS = [
+    {"name": "health", "description": "Service health and readiness checks"},
+    {"name": "fleet", "description": "Device registry, status, and fleet overview"},
+    {"name": "topology", "description": "Mesh network graph, connectivity, and SPOF analysis"},
+    {"name": "config", "description": "Golden config templates and drift detection"},
+    {"name": "alerts", "description": "Fleet health alerts and AI summaries"},
+    {"name": "monitoring", "description": "Watchdog, baselines, health scoring, and encryption audit"},
+    {"name": "geofencing", "description": "Virtual boundary zones and breach tracking"},
+    {"name": "coverage", "description": "Signal coverage mapping and dead zone detection"},
+    {"name": "analytics", "description": "Fleet trends, uptime, battery, and message volume"},
+    {"name": "ai", "description": "Ollama-powered anomaly detection, provisioning, and reasoning"},
+    {"name": "environment", "description": "Environmental sensor telemetry (temp, humidity, pressure)"},
+    {"name": "admin", "description": "Recovery, failover, workbench, provisioning, sync relay"},
+    {"name": "webhooks", "description": "External system webhook notifications"},
+    {"name": "notifications", "description": "Multi-channel alert routing (Slack, Teams, Email)"},
+    {"name": "bulk-ops", "description": "Batch fleet operations with dry-run preview"},
+]
+
+
 def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     """Create the JennMesh dashboard FastAPI application.
 
@@ -63,10 +82,23 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
 
     app = FastAPI(
         title="JennMesh Dashboard",
-        description="Meshtastic fleet management dashboard",
+        description=(
+            "Meshtastic LoRa radio fleet management — monitoring, "
+            "provisioning, alerting, and AI-powered analytics.\n\n"
+            "**Version history**: See CHANGELOG.md in the repository."
+        ),
         version=__version__,
         root_path=root_path,
         lifespan=lifespan,
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_tags=OPENAPI_TAGS,
+        contact={"name": "Magnivation", "url": "https://jenn2u.ai"},
+        license_info={"name": "Proprietary", "url": "https://jenn2u.ai/terms"},
+        servers=[
+            {"url": "https://mesh.jenn2u.ai", "description": "Production"},
+            {"url": "http://localhost:8002", "description": "Local development"},
+        ],
     )
 
     # Inject test DB — set state directly because httpx ASGITransport
@@ -187,6 +219,27 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
             app.state.env_telemetry_manager = EnvTelemetryManager(db=db)
         except Exception:
             pass  # graceful degradation — env telemetry unavailable
+        try:
+            from jenn_mesh.core.encryption_auditor import EncryptionAuditor
+
+            app.state.encryption_auditor = EncryptionAuditor(db=db)
+        except Exception:
+            pass  # graceful degradation — encryption audit unavailable
+        try:
+            from jenn_mesh.core.webhook_manager import WebhookManager
+
+            app.state.webhook_manager = WebhookManager(db=db)
+        except Exception:
+            pass  # graceful degradation — webhooks unavailable
+        try:
+            from jenn_mesh.core.notification_dispatcher import NotificationDispatcher
+
+            wh_mgr = getattr(app.state, "webhook_manager", None)
+            app.state.notification_dispatcher = NotificationDispatcher(
+                db=db, webhook_manager=wh_mgr
+            )
+        except Exception:
+            pass  # graceful degradation — notifications unavailable
         app.state.startup_time = datetime.now(timezone.utc)
 
     # --- Error handlers ---
@@ -236,38 +289,48 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
         router as provisioning_advisor_router,
     )
     from jenn_mesh.dashboard.routes.lost_node_ai import router as lost_node_ai_router
+    from jenn_mesh.dashboard.routes.encryption import router as encryption_router
     from jenn_mesh.dashboard.routes.env_telemetry import router as env_telemetry_router
+    from jenn_mesh.dashboard.routes.webhooks import router as webhooks_router
+    from jenn_mesh.dashboard.routes.notifications import router as notifications_router
+    from jenn_mesh.dashboard.routes.partitions import router as partitions_router
+    from jenn_mesh.dashboard.routes.bulk_ops import router as bulk_ops_router
 
-    app.include_router(health_router)
+    app.include_router(health_router, tags=["health"])
     # Heartbeat router before fleet router — /fleet/mesh-status must match
     # before /fleet/{node_id} (FastAPI matches routes in registration order)
-    app.include_router(heartbeat_router, prefix="/api/v1")
-    app.include_router(fleet_router, prefix="/api/v1")
-    app.include_router(config_router, prefix="/api/v1")
-    app.include_router(provision_router, prefix="/api/v1")
-    app.include_router(locator_router, prefix="/api/v1")
-    app.include_router(topology_router, prefix="/api/v1")
-    app.include_router(firmware_router, prefix="/api/v1")
-    app.include_router(baselines_router, prefix="/api/v1")
-    app.include_router(scoring_router, prefix="/api/v1")
-    app.include_router(workbench_router, prefix="/api/v1")
-    app.include_router(emergency_router, prefix="/api/v1")
-    app.include_router(recovery_router, prefix="/api/v1")
-    app.include_router(config_queue_router, prefix="/api/v1")
-    app.include_router(failover_router, prefix="/api/v1")
-    app.include_router(watchdog_router, prefix="/api/v1")
-    app.include_router(config_rollback_router, prefix="/api/v1")
-    app.include_router(sync_relay_router, prefix="/api/v1")
-    app.include_router(geofencing_router, prefix="/api/v1")
-    app.include_router(anomaly_router, prefix="/api/v1")
-    app.include_router(alert_summary_router, prefix="/api/v1")
-    app.include_router(coverage_router, prefix="/api/v1")
-    app.include_router(analytics_router, prefix="/api/v1")
-    app.include_router(provisioning_advisor_router, prefix="/api/v1")
+    app.include_router(heartbeat_router, prefix="/api/v1", tags=["fleet"])
+    app.include_router(fleet_router, prefix="/api/v1", tags=["fleet"])
+    app.include_router(config_router, prefix="/api/v1", tags=["config"])
+    app.include_router(provision_router, prefix="/api/v1", tags=["admin"])
+    app.include_router(locator_router, prefix="/api/v1", tags=["fleet"])
+    app.include_router(topology_router, prefix="/api/v1", tags=["topology"])
+    app.include_router(firmware_router, prefix="/api/v1", tags=["config"])
+    app.include_router(baselines_router, prefix="/api/v1", tags=["monitoring"])
+    app.include_router(scoring_router, prefix="/api/v1", tags=["monitoring"])
+    app.include_router(workbench_router, prefix="/api/v1", tags=["admin"])
+    app.include_router(emergency_router, prefix="/api/v1", tags=["alerts"])
+    app.include_router(recovery_router, prefix="/api/v1", tags=["admin"])
+    app.include_router(config_queue_router, prefix="/api/v1", tags=["config"])
+    app.include_router(failover_router, prefix="/api/v1", tags=["admin"])
+    app.include_router(watchdog_router, prefix="/api/v1", tags=["monitoring"])
+    app.include_router(config_rollback_router, prefix="/api/v1", tags=["config"])
+    app.include_router(sync_relay_router, prefix="/api/v1", tags=["admin"])
+    app.include_router(geofencing_router, prefix="/api/v1", tags=["geofencing"])
+    app.include_router(anomaly_router, prefix="/api/v1", tags=["ai"])
+    app.include_router(alert_summary_router, prefix="/api/v1", tags=["alerts"])
+    app.include_router(coverage_router, prefix="/api/v1", tags=["coverage"])
+    app.include_router(analytics_router, prefix="/api/v1", tags=["analytics"])
+    app.include_router(provisioning_advisor_router, prefix="/api/v1", tags=["ai"])
     # lost_node_ai_router before locator_router: /locate/ai/status must match
     # before /locate/{node_id} would capture "ai" as a node_id
-    app.include_router(lost_node_ai_router, prefix="/api/v1")
-    app.include_router(env_telemetry_router, prefix="/api/v1")
+    app.include_router(lost_node_ai_router, prefix="/api/v1", tags=["ai"])
+    app.include_router(env_telemetry_router, prefix="/api/v1", tags=["environment"])
+    app.include_router(encryption_router, prefix="/api/v1", tags=["monitoring"])
+    app.include_router(webhooks_router, prefix="/api/v1", tags=["webhooks"])
+    app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"])
+    app.include_router(partitions_router, prefix="/api/v1", tags=["topology"])
+    app.include_router(bulk_ops_router, prefix="/api/v1", tags=["bulk-ops"])
 
     # Dashboard HTML pages
     @app.get("/")

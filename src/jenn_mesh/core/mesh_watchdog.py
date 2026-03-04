@@ -57,6 +57,8 @@ class MeshWatchdog:
         "baseline_deviation": 600,  # 10 min
         "post_push_failures": 120,  # 2 min
         "sync_health": 300,  # 5 min
+        "encryption_audit": 600,  # 10 min
+        "partition_detection": 300,  # 5 min
     }
 
     DEFAULT_THRESHOLDS: dict[str, Any] = {
@@ -101,6 +103,8 @@ class MeshWatchdog:
             "baseline_deviation": self._check_baseline_deviation,
             "post_push_failures": self._check_post_push_failures,
             "sync_health": self._check_sync_health,
+            "encryption_audit": self._check_encryption_audit,
+            "partition_detection": self._check_partition_detection,
         }
 
     # ── Public API ────────────────────────────────────────────────────
@@ -403,6 +407,58 @@ class MeshWatchdog:
             "stale_sessions": stale_count,
             "auto_resolved": resolved,
         }
+
+
+    def _check_encryption_audit(self) -> dict:
+        """Audit fleet encryption posture and flag weak/unencrypted channels."""
+        from jenn_mesh.core.encryption_auditor import EncryptionAuditor
+        from jenn_mesh.models.fleet import ALERT_SEVERITY_MAP, AlertType
+
+        auditor = EncryptionAuditor(db=self.db)
+        report = auditor.audit_fleet()
+
+        # Create alerts for devices with weak/unencrypted channels
+        new_alerts = 0
+        weak_node_ids: set[str] = set()
+        for device_audit in report.devices:
+            if device_audit.weak_channels:
+                weak_node_ids.add(device_audit.node_id)
+                if not self.db.has_active_alert(
+                    device_audit.node_id, AlertType.ENCRYPTION_WEAK.value
+                ):
+                    severity = ALERT_SEVERITY_MAP[AlertType.ENCRYPTION_WEAK].value
+                    weak_names = ", ".join(
+                        ch.channel_name for ch in device_audit.weak_channels
+                    )
+                    msg = f"Weak/unencrypted channels: {weak_names}"
+                    self.db.create_alert(
+                        device_audit.node_id,
+                        AlertType.ENCRYPTION_WEAK.value,
+                        severity,
+                        msg,
+                    )
+                    new_alerts += 1
+
+        # Auto-resolve: if a device no longer has weak channels
+        resolved = self._auto_resolve_alerts(
+            "encryption_weak",
+            lambda nid: nid not in weak_node_ids,
+        )
+
+        return {
+            "fleet_score": report.fleet_score,
+            "devices_audited": report.total_devices,
+            "weak_device_count": len(weak_node_ids),
+            "new_alerts": new_alerts,
+            "auto_resolved": resolved,
+        }
+
+    def _check_partition_detection(self) -> dict:
+        """Detect network partitions — splits and merges in the mesh graph."""
+        from jenn_mesh.core.partition_detector import PartitionDetector
+
+        detector = PartitionDetector(db=self.db)
+        return detector.check_partitions()
 
 
 # ── Async loop (started by lifespan) ─────────────────────────────────

@@ -42,6 +42,10 @@ class AlertType(str, Enum):
     COVERAGE_DEGRADED = "coverage_degraded"
     # v0.5.0 — Environmental telemetry
     ENV_THRESHOLD_EXCEEDED = "env_threshold_exceeded"
+    # v0.6.0 — Security, APIs & Notifications
+    ENCRYPTION_WEAK = "encryption_weak"
+    NETWORK_PARTITION = "network_partition"
+    PARTITION_RESOLVED = "partition_resolved"
 
 
 class AlertSeverity(str, Enum):
@@ -100,6 +104,10 @@ ALERT_SEVERITY_MAP: dict[AlertType, AlertSeverity] = {
     AlertType.COVERAGE_DEGRADED: AlertSeverity.WARNING,
     # v0.5.0 — Environmental telemetry
     AlertType.ENV_THRESHOLD_EXCEEDED: AlertSeverity.WARNING,
+    # v0.6.0 — Security, APIs & Notifications
+    AlertType.ENCRYPTION_WEAK: AlertSeverity.WARNING,
+    AlertType.NETWORK_PARTITION: AlertSeverity.CRITICAL,
+    AlertType.PARTITION_RESOLVED: AlertSeverity.INFO,
 }
 
 
