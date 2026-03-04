@@ -58,6 +58,7 @@ class TestStatusEndpoint:
             "baseline_deviation",
             "post_push_failures",
             "sync_health",
+            "encryption_audit",
         }
         assert set(data["checks"].keys()) == expected_checks
 
@@ -164,4 +165,4 @@ class TestHealthIncludesWatchdog:
         assert "mesh_watchdog" in data["components"]
         assert data["components"]["mesh_watchdog"]["status"] == "healthy"
         assert data["components"]["mesh_watchdog"]["total_cycles"] == 0
-        assert data["components"]["mesh_watchdog"]["enabled_checks"] == 10
+        assert data["components"]["mesh_watchdog"]["enabled_checks"] == 11

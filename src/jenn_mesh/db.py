@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator, Optional
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 SCHEMA_SQL = """
 -- Device registry: every known radio in the fleet
@@ -405,6 +405,99 @@ CREATE TABLE IF NOT EXISTS env_telemetry (
 );
 CREATE INDEX IF NOT EXISTS idx_env_node_time ON env_telemetry(node_id, timestamp DESC);
 
+-- Webhooks: external HTTP POST targets for fleet event notifications
+CREATE TABLE IF NOT EXISTS webhooks (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,
+    url             TEXT NOT NULL,
+    secret          TEXT NOT NULL DEFAULT '',
+    event_types     TEXT NOT NULL DEFAULT '[]',
+    is_active       INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT
+);
+
+-- Webhook deliveries: delivery attempt log with retry tracking
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    webhook_id      INTEGER NOT NULL,
+    event_type      TEXT NOT NULL,
+    payload_json    TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    http_status     INTEGER,
+    response_body   TEXT,
+    attempt_count   INTEGER NOT NULL DEFAULT 0,
+    max_attempts    INTEGER NOT NULL DEFAULT 5,
+    next_retry_at   TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    delivered_at    TEXT,
+    last_error      TEXT,
+    FOREIGN KEY (webhook_id) REFERENCES webhooks(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status
+    ON webhook_deliveries(status, next_retry_at ASC);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook
+    ON webhook_deliveries(webhook_id, created_at DESC);
+
+-- Notification channels: Slack, Teams, Email, Webhook channel configs
+CREATE TABLE IF NOT EXISTS notification_channels (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,
+    channel_type    TEXT NOT NULL,
+    config_json     TEXT NOT NULL DEFAULT '{}',
+    is_active       INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT
+);
+
+-- Notification rules: alert type/severity → channel routing
+CREATE TABLE IF NOT EXISTS notification_rules (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,
+    alert_types     TEXT NOT NULL DEFAULT '[]',
+    severities      TEXT NOT NULL DEFAULT '[]',
+    channel_ids     TEXT NOT NULL DEFAULT '[]',
+    is_active       INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT
+);
+
+-- Partition events: network split/merge history with topology snapshots
+CREATE TABLE IF NOT EXISTS partition_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type      TEXT NOT NULL,
+    component_count INTEGER NOT NULL DEFAULT 0,
+    components_json TEXT NOT NULL DEFAULT '[]',
+    topology_before TEXT,
+    topology_after  TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_partition_events_time
+    ON partition_events(created_at DESC);
+
+-- Bulk operations: batch fleet actions with progress tracking
+CREATE TABLE IF NOT EXISTS bulk_operations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation_type  TEXT NOT NULL,
+    target_filter   TEXT NOT NULL DEFAULT '{}',
+    target_node_ids TEXT NOT NULL DEFAULT '[]',
+    parameters      TEXT NOT NULL DEFAULT '{}',
+    status          TEXT NOT NULL DEFAULT 'pending',
+    total_targets   INTEGER NOT NULL DEFAULT 0,
+    completed_count INTEGER NOT NULL DEFAULT 0,
+    failed_count    INTEGER NOT NULL DEFAULT 0,
+    skipped_count   INTEGER NOT NULL DEFAULT 0,
+    result_json     TEXT,
+    operator        TEXT NOT NULL DEFAULT 'dashboard',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at      TEXT,
+    completed_at    TEXT,
+    error           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bulk_ops_status
+    ON bulk_operations(status, created_at DESC);
+
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version         INTEGER NOT NULL,
@@ -455,6 +548,9 @@ class MeshDatabase:
                     #            (CREATE IF NOT EXISTS only)
                     # v11 → v12: geofences, coverage_samples (CREATE IF NOT EXISTS only)
                     # v12 → v13: env_telemetry (CREATE IF NOT EXISTS only)
+                    # v13 → v14: webhooks, webhook_deliveries, notification_channels,
+                    #            notification_rules, partition_events, bulk_operations
+                    #            (CREATE IF NOT EXISTS only)
                     if current_version < 4:
                         # Add new columns (safe: ALTER TABLE ADD COLUMN is idempotent-ish,
                         # but we guard with version check to avoid "duplicate column" errors)
@@ -2068,3 +2164,477 @@ class MeshDatabase:
                 (f"-{days} days",),
             )
             return cursor.rowcount
+
+    # ── Webhook CRUD ──────────────────────────────────────────────────
+
+    def create_webhook(
+        self,
+        name: str,
+        url: str,
+        secret: str = "",
+        event_types: Optional[str] = None,
+    ) -> int:
+        """Create a webhook target. Returns the new webhook ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO webhooks (name, url, secret, event_types)
+                   VALUES (?, ?, ?, ?)""",
+                (name, url, secret, event_types or "[]"),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_webhook(self, webhook_id: int) -> Optional[dict]:
+        """Get a single webhook by ID."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM webhooks WHERE id = ?", (webhook_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_webhooks(self, active_only: bool = False) -> list[dict]:
+        """List all webhooks, optionally filtering to active only."""
+        with self.connection() as conn:
+            if active_only:
+                rows = conn.execute(
+                    "SELECT * FROM webhooks WHERE is_active = 1 ORDER BY created_at DESC"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM webhooks ORDER BY created_at DESC"
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_webhook(self, webhook_id: int, **kwargs: object) -> bool:
+        """Update webhook fields. Returns True if updated."""
+        allowed = {"name", "url", "secret", "event_types", "is_active"}
+        updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
+        if not updates:
+            return False
+        updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [webhook_id]
+        with self.connection() as conn:
+            cursor = conn.execute(
+                f"UPDATE webhooks SET {set_clause} WHERE id = ?", values
+            )
+            return cursor.rowcount > 0
+
+    def delete_webhook(self, webhook_id: int) -> bool:
+        """Delete a webhook and its deliveries (CASCADE). Returns True if deleted."""
+        with self.connection() as conn:
+            cursor = conn.execute("DELETE FROM webhooks WHERE id = ?", (webhook_id,))
+            return cursor.rowcount > 0
+
+    # ── Webhook Delivery CRUD ─────────────────────────────────────────
+
+    def create_webhook_delivery(
+        self,
+        webhook_id: int,
+        event_type: str,
+        payload_json: str,
+        max_attempts: int = 5,
+    ) -> int:
+        """Create a pending webhook delivery. Returns the delivery ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO webhook_deliveries
+                   (webhook_id, event_type, payload_json, max_attempts)
+                   VALUES (?, ?, ?, ?)""",
+                (webhook_id, event_type, payload_json, max_attempts),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_pending_webhook_deliveries(self, limit: int = 50) -> list[dict]:
+        """Get pending deliveries ready for retry."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT wd.*, w.url, w.secret
+                   FROM webhook_deliveries wd
+                   JOIN webhooks w ON wd.webhook_id = w.id
+                   WHERE wd.status IN ('pending', 'retrying')
+                     AND (wd.next_retry_at IS NULL
+                          OR wd.next_retry_at <= datetime('now'))
+                     AND wd.attempt_count < wd.max_attempts
+                   ORDER BY wd.created_at ASC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_webhook_delivery(
+        self,
+        delivery_id: int,
+        *,
+        status: Optional[str] = None,
+        http_status: Optional[int] = None,
+        response_body: Optional[str] = None,
+        next_retry_at: Optional[str] = None,
+        last_error: Optional[str] = None,
+        delivered_at: Optional[str] = None,
+        increment_attempt: bool = False,
+    ) -> bool:
+        """Update a delivery record after an attempt."""
+        updates: list[str] = []
+        values: list[object] = []
+        if status is not None:
+            updates.append("status = ?")
+            values.append(status)
+        if http_status is not None:
+            updates.append("http_status = ?")
+            values.append(http_status)
+        if response_body is not None:
+            updates.append("response_body = ?")
+            values.append(response_body[:2000])
+        if next_retry_at is not None:
+            updates.append("next_retry_at = ?")
+            values.append(next_retry_at)
+        if last_error is not None:
+            updates.append("last_error = ?")
+            values.append(last_error[:1000])
+        if delivered_at is not None:
+            updates.append("delivered_at = ?")
+            values.append(delivered_at)
+        if increment_attempt:
+            updates.append("attempt_count = attempt_count + 1")
+        if not updates:
+            return False
+        values.append(delivery_id)
+        with self.connection() as conn:
+            cursor = conn.execute(
+                f"UPDATE webhook_deliveries SET {', '.join(updates)} WHERE id = ?",
+                values,
+            )
+            return cursor.rowcount > 0
+
+    def list_webhook_deliveries(
+        self, webhook_id: int, limit: int = 50
+    ) -> list[dict]:
+        """List deliveries for a specific webhook."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM webhook_deliveries
+                   WHERE webhook_id = ?
+                   ORDER BY created_at DESC LIMIT ?""",
+                (webhook_id, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def prune_old_webhook_deliveries(self, days: int = 30) -> int:
+        """Delete webhook deliveries older than N days."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """DELETE FROM webhook_deliveries
+                   WHERE created_at < datetime('now', ?)""",
+                (f"-{days} days",),
+            )
+            return cursor.rowcount
+
+    # ── Notification Channel CRUD ─────────────────────────────────────
+
+    def create_notification_channel(
+        self,
+        name: str,
+        channel_type: str,
+        config_json: str = "{}",
+    ) -> int:
+        """Create a notification channel. Returns the channel ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO notification_channels (name, channel_type, config_json)
+                   VALUES (?, ?, ?)""",
+                (name, channel_type, config_json),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_notification_channel(self, channel_id: int) -> Optional[dict]:
+        """Get a single notification channel by ID."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM notification_channels WHERE id = ?", (channel_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_notification_channels(self, active_only: bool = False) -> list[dict]:
+        """List all notification channels."""
+        with self.connection() as conn:
+            if active_only:
+                rows = conn.execute(
+                    "SELECT * FROM notification_channels WHERE is_active = 1 ORDER BY name"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM notification_channels ORDER BY name"
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_notification_channel(self, channel_id: int, **kwargs: object) -> bool:
+        """Update notification channel fields."""
+        allowed = {"name", "channel_type", "config_json", "is_active"}
+        updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
+        if not updates:
+            return False
+        updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [channel_id]
+        with self.connection() as conn:
+            cursor = conn.execute(
+                f"UPDATE notification_channels SET {set_clause} WHERE id = ?", values
+            )
+            return cursor.rowcount > 0
+
+    def delete_notification_channel(self, channel_id: int) -> bool:
+        """Delete a notification channel. Returns True if deleted."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM notification_channels WHERE id = ?", (channel_id,)
+            )
+            return cursor.rowcount > 0
+
+    # ── Notification Rule CRUD ────────────────────────────────────────
+
+    def create_notification_rule(
+        self,
+        name: str,
+        alert_types: str = "[]",
+        severities: str = "[]",
+        channel_ids: str = "[]",
+    ) -> int:
+        """Create a notification rule. Returns the rule ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO notification_rules
+                   (name, alert_types, severities, channel_ids)
+                   VALUES (?, ?, ?, ?)""",
+                (name, alert_types, severities, channel_ids),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_notification_rule(self, rule_id: int) -> Optional[dict]:
+        """Get a single notification rule by ID."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM notification_rules WHERE id = ?", (rule_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_notification_rules(self, active_only: bool = False) -> list[dict]:
+        """List all notification rules."""
+        with self.connection() as conn:
+            if active_only:
+                rows = conn.execute(
+                    "SELECT * FROM notification_rules WHERE is_active = 1 ORDER BY name"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM notification_rules ORDER BY name"
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_notification_rule(self, rule_id: int, **kwargs: object) -> bool:
+        """Update notification rule fields."""
+        allowed = {"name", "alert_types", "severities", "channel_ids", "is_active"}
+        updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
+        if not updates:
+            return False
+        updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [rule_id]
+        with self.connection() as conn:
+            cursor = conn.execute(
+                f"UPDATE notification_rules SET {set_clause} WHERE id = ?", values
+            )
+            return cursor.rowcount > 0
+
+    def delete_notification_rule(self, rule_id: int) -> bool:
+        """Delete a notification rule. Returns True if deleted."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM notification_rules WHERE id = ?", (rule_id,)
+            )
+            return cursor.rowcount > 0
+
+    def get_channels_for_alert(
+        self, alert_type: str, severity: str
+    ) -> list[dict]:
+        """Find notification channels matching an alert type + severity.
+
+        Scans active rules for matching alert_type and severity, collects
+        referenced channel_ids, and returns the active channel records.
+        """
+        import json as _json
+
+        rules = self.list_notification_rules(active_only=True)
+        matched_channel_ids: set[int] = set()
+        for rule in rules:
+            types = _json.loads(rule.get("alert_types", "[]"))
+            sevs = _json.loads(rule.get("severities", "[]"))
+            type_match = not types or alert_type in types
+            sev_match = not sevs or severity in sevs
+            if type_match and sev_match:
+                cids = _json.loads(rule.get("channel_ids", "[]"))
+                matched_channel_ids.update(cids)
+        if not matched_channel_ids:
+            return []
+        channels = self.list_notification_channels(active_only=True)
+        return [ch for ch in channels if ch["id"] in matched_channel_ids]
+
+    # ── Partition Event CRUD ──────────────────────────────────────────
+
+    def create_partition_event(
+        self,
+        event_type: str,
+        component_count: int,
+        components_json: str = "[]",
+        topology_before: Optional[str] = None,
+        topology_after: Optional[str] = None,
+    ) -> int:
+        """Create a partition event. Returns the event ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO partition_events
+                   (event_type, component_count, components_json,
+                    topology_before, topology_after)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (event_type, component_count, components_json,
+                 topology_before, topology_after),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_partition_event(self, event_id: int) -> Optional[dict]:
+        """Get a single partition event by ID."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM partition_events WHERE id = ?", (event_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_partition_events(self, limit: int = 50) -> list[dict]:
+        """List partition events, most recent first."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM partition_events ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def resolve_partition_event(self, event_id: int) -> bool:
+        """Mark a partition event as resolved."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """UPDATE partition_events
+                   SET resolved_at = datetime('now')
+                   WHERE id = ? AND resolved_at IS NULL""",
+                (event_id,),
+            )
+            return cursor.rowcount > 0
+
+    def get_latest_partition_event(self) -> Optional[dict]:
+        """Get the most recent unresolved partition event, if any."""
+        with self.connection() as conn:
+            row = conn.execute(
+                """SELECT * FROM partition_events
+                   WHERE resolved_at IS NULL
+                   ORDER BY created_at DESC LIMIT 1"""
+            ).fetchone()
+            return dict(row) if row else None
+
+    # ── Bulk Operation CRUD ───────────────────────────────────────────
+
+    def create_bulk_operation(
+        self,
+        operation_type: str,
+        target_filter: str = "{}",
+        target_node_ids: str = "[]",
+        parameters: str = "{}",
+        total_targets: int = 0,
+        operator: str = "dashboard",
+    ) -> int:
+        """Create a bulk operation. Returns the operation ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO bulk_operations
+                   (operation_type, target_filter, target_node_ids, parameters,
+                    total_targets, operator)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (operation_type, target_filter, target_node_ids, parameters,
+                 total_targets, operator),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_bulk_operation(self, op_id: int) -> Optional[dict]:
+        """Get a single bulk operation by ID."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM bulk_operations WHERE id = ?", (op_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_bulk_operations(self, limit: int = 50) -> list[dict]:
+        """List bulk operations, most recent first."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM bulk_operations ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_bulk_operation(
+        self,
+        op_id: int,
+        *,
+        status: Optional[str] = None,
+        completed_count: Optional[int] = None,
+        failed_count: Optional[int] = None,
+        skipped_count: Optional[int] = None,
+        result_json: Optional[str] = None,
+        started_at: Optional[str] = None,
+        completed_at: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> bool:
+        """Update a bulk operation's progress or status."""
+        updates: list[str] = []
+        values: list[object] = []
+        if status is not None:
+            updates.append("status = ?")
+            values.append(status)
+        if completed_count is not None:
+            updates.append("completed_count = ?")
+            values.append(completed_count)
+        if failed_count is not None:
+            updates.append("failed_count = ?")
+            values.append(failed_count)
+        if skipped_count is not None:
+            updates.append("skipped_count = ?")
+            values.append(skipped_count)
+        if result_json is not None:
+            updates.append("result_json = ?")
+            values.append(result_json)
+        if started_at is not None:
+            updates.append("started_at = ?")
+            values.append(started_at)
+        if completed_at is not None:
+            updates.append("completed_at = ?")
+            values.append(completed_at)
+        if error is not None:
+            updates.append("error = ?")
+            values.append(error)
+        if not updates:
+            return False
+        values.append(op_id)
+        with self.connection() as conn:
+            cursor = conn.execute(
+                f"UPDATE bulk_operations SET {', '.join(updates)} WHERE id = ?",
+                values,
+            )
+            return cursor.rowcount > 0
+
+    def cancel_bulk_operation(self, op_id: int) -> bool:
+        """Cancel a pending or running bulk operation."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """UPDATE bulk_operations
+                   SET status = 'cancelled', completed_at = datetime('now')
+                   WHERE id = ? AND status IN ('pending', 'running')""",
+                (op_id,),
+            )
+            return cursor.rowcount > 0

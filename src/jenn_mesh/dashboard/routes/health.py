@@ -186,7 +186,21 @@ async def health_check(request: Request) -> dict:
     else:
         components["sync_relay"] = {"status": "unavailable"}
 
-    # 13. Uptime
+    # 13. Encryption audit
+    enc_auditor = getattr(request.app.state, "encryption_auditor", None)
+    if enc_auditor is not None:
+        try:
+            score = enc_auditor.get_fleet_encryption_score()
+            components["encryption_audit"] = {
+                "status": "healthy",
+                "fleet_score": score,
+            }
+        except Exception as exc:
+            components["encryption_audit"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["encryption_audit"] = {"status": "unavailable"}
+
+    # 14. Uptime
     startup_time = getattr(request.app.state, "startup_time", None)
     if startup_time is not None:
         uptime = (datetime.now(timezone.utc) - startup_time).total_seconds()
