@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JennMesh — Topology Visualization</title>
+    <link rel="stylesheet" href="/static/css/topology-viz.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+    <header class="top-bar">
+        <div class="logo">
+            <span class="logo-icon">&#9041;</span>
+            <h1>JennMesh</h1>
+            <span class="version">v{{ version }}</span>
+        </div>
+        <nav>
+            <a href="/" class="nav-link">Dashboard</a>
+            <a href="/topology" class="nav-link active">Topology</a>
+        </nav>
+    </header>
+
+    <main class="topology-layout">
+        <!-- Graph Area -->
+        <div class="graph-container">
+            <div class="graph-toolbar">
+                <span class="graph-title">Mesh Topology</span>
+                <div class="graph-legend">
+                    <span class="legend-item">
+                        <span class="legend-dot online"></span> Online
+                    </span>
+                    <span class="legend-item">
+                        <span class="legend-dot offline"></span> Offline
+                    </span>
+                    <span class="legend-item">
+                        <span class="legend-dot spof"></span> SPOF
+                    </span>
+                </div>
+                <button id="btn-refresh" class="btn-sm">Refresh</button>
+            </div>
+            <svg id="topology-svg"></svg>
+            <div class="graph-stats" id="graph-stats">
+                <span>Nodes: <strong id="stat-nodes">—</strong></span>
+                <span>Edges: <strong id="stat-edges">—</strong></span>
+                <span>Components: <strong id="stat-components">—</strong></span>
+                <span>SPOF: <strong id="stat-spof">—</strong></span>
+            </div>
+        </div>
+
+        <!-- Detail Sidebar -->
+        <aside class="detail-sidebar" id="detail-sidebar">
+            <div class="sidebar-placeholder" id="sidebar-placeholder">
+                <p>Click a node to view details</p>
+            </div>
+            <div class="sidebar-content" id="sidebar-content" style="display:none">
+                <h3 id="detail-name">—</h3>
+                <dl class="detail-list">
+                    <dt>Node ID</dt>
+                    <dd id="detail-id">—</dd>
+                    <dt>Role</dt>
+                    <dd id="detail-role">—</dd>
+                    <dt>Status</dt>
+                    <dd id="detail-status">—</dd>
+                    <dt>Neighbors</dt>
+                    <dd id="detail-neighbors">—</dd>
+                    <dt>Position</dt>
+                    <dd id="detail-position">—</dd>
+                </dl>
+                <h4>Connections</h4>
+                <ul id="detail-edges" class="edge-list"></ul>
+            </div>
+        </aside>
+    </main>
+
+    <footer>
+        <span>JennMesh v{{ version }} — Magnivation JENN Ecosystem</span>
+    </footer>
+
+    <script src="/static/js/topology-viz.js"></script>
+</body>
+</html>

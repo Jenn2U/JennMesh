@@ -151,6 +151,12 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
             app.state.anomaly_detector = AnomalyDetector(db=db)
         except Exception:
             pass  # graceful degradation — anomaly detection features unavailable
+        try:
+            from jenn_mesh.core.alert_summarizer import AlertSummarizer
+
+            app.state.alert_summarizer = AlertSummarizer(db=db)
+        except Exception:
+            pass  # graceful degradation — alert summarization unavailable
         app.state.startup_time = datetime.now(timezone.utc)
 
     # --- Error handlers ---
@@ -193,6 +199,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.sync_relay import router as sync_relay_router
     from jenn_mesh.dashboard.routes.geofencing import router as geofencing_router
     from jenn_mesh.dashboard.routes.anomaly import router as anomaly_router
+    from jenn_mesh.dashboard.routes.alert_summary import router as alert_summary_router
 
     app.include_router(health_router)
     # Heartbeat router before fleet router — /fleet/mesh-status must match
@@ -216,8 +223,9 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(sync_relay_router, prefix="/api/v1")
     app.include_router(geofencing_router, prefix="/api/v1")
     app.include_router(anomaly_router, prefix="/api/v1")
+    app.include_router(alert_summary_router, prefix="/api/v1")
 
-    # Dashboard HTML page
+    # Dashboard HTML pages
     @app.get("/")
     async def dashboard_home(request: Request) -> object:
         """Serve the main dashboard page."""
@@ -232,6 +240,23 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
                 "version": __version__,
                 "status": "running",
                 "docs": f"{root_path}/docs",
+            }
+        )
+
+    @app.get("/topology")
+    async def topology_page(request: Request) -> object:
+        """Serve the topology visualization page."""
+        topo_template = TEMPLATES_DIR / "topology.html"
+        if topo_template.exists():
+            return templates.TemplateResponse(
+                "topology.html",
+                {"request": request, "version": __version__},
+            )
+        return JSONResponse(
+            {
+                "page": "topology",
+                "message": "Topology visualization template not found",
+                "api": f"{root_path}/api/v1/topology",
             }
         )
 

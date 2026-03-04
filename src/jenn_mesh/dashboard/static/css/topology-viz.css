@@ -1,0 +1,230 @@
+/* JennMesh Topology Visualization — Thinking Canvas UI */
+:root {
+    --teal: #0D7377;
+    --teal-light: #14919B;
+    --amber: #D97706;
+    --red: #DC2626;
+    --bg: #0F172A;
+    --bg-surface: #1E293B;
+    --bg-card: #334155;
+    --text: #F1F5F9;
+    --text-muted: #94A3B8;
+    --border: #475569;
+    --font-sans: 'DM Sans', 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── Header ─────────────────────────────────────── */
+.top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1.5rem;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+}
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.logo-icon { font-size: 1.5rem; color: var(--teal); }
+.logo h1 { font-size: 1.25rem; font-weight: 700; }
+.version {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    background: var(--bg-card);
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+}
+nav { display: flex; gap: 0.5rem; }
+.nav-link {
+    color: var(--text-muted);
+    text-decoration: none;
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+}
+.nav-link:hover { color: var(--text); background: var(--bg-card); }
+.nav-link.active { color: var(--teal); background: rgba(13, 115, 119, 0.15); }
+
+/* ── Main Layout ────────────────────────────────── */
+.topology-layout {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
+/* ── Graph Container ────────────────────────────── */
+.graph-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+.graph-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+}
+.graph-title { font-weight: 600; font-size: 1rem; }
+.graph-legend {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+.legend-item { display: flex; align-items: center; gap: 0.3rem; }
+.legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.legend-dot.online { background: var(--teal); }
+.legend-dot.offline { background: var(--red); }
+.legend-dot.spof {
+    background: var(--amber);
+    box-shadow: 0 0 6px var(--amber);
+}
+.btn-sm {
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    padding: 0.3rem 0.75rem;
+    background: var(--bg-card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.btn-sm:hover { background: var(--teal); border-color: var(--teal); }
+
+#topology-svg {
+    flex: 1;
+    width: 100%;
+    background: var(--bg);
+}
+
+.graph-stats {
+    display: flex;
+    gap: 1.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+.graph-stats strong { color: var(--text); font-family: var(--font-mono); }
+
+/* ── D3 Node Styles ─────────────────────────────── */
+.node-circle {
+    stroke-width: 2;
+    cursor: pointer;
+    transition: r 0.2s;
+}
+.node-circle:hover { r: 14; }
+.node-circle.online { fill: var(--teal); stroke: var(--teal-light); }
+.node-circle.offline { fill: var(--red); stroke: #991B1B; }
+.node-circle.spof {
+    stroke: var(--amber);
+    stroke-width: 3;
+    animation: pulse-spof 2s infinite;
+}
+@keyframes pulse-spof {
+    0%, 100% { stroke-width: 3; }
+    50% { stroke-width: 6; stroke-opacity: 0.6; }
+}
+.node-circle.selected {
+    stroke: #fff;
+    stroke-width: 3;
+}
+.node-label {
+    fill: var(--text);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-anchor: middle;
+    pointer-events: none;
+    user-select: none;
+}
+.edge-line {
+    stroke: var(--border);
+    stroke-opacity: 0.6;
+}
+.edge-line.strong { stroke: var(--teal); stroke-opacity: 0.8; }
+.edge-line.weak { stroke: var(--amber); stroke-opacity: 0.5; stroke-dasharray: 4,3; }
+
+/* ── Detail Sidebar ─────────────────────────────── */
+.detail-sidebar {
+    width: 300px;
+    background: var(--bg-surface);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 1rem;
+}
+.sidebar-placeholder {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+.sidebar-content h3 {
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+    color: var(--teal);
+}
+.detail-list {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.4rem 1rem;
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+}
+.detail-list dt { color: var(--text-muted); font-weight: 500; }
+.detail-list dd { font-family: var(--font-mono); font-size: 0.8rem; }
+.sidebar-content h4 {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+}
+.edge-list {
+    list-style: none;
+    font-size: 0.8rem;
+}
+.edge-list li {
+    padding: 0.3rem 0.5rem;
+    background: var(--bg-card);
+    border-radius: 4px;
+    margin-bottom: 0.3rem;
+    font-family: var(--font-mono);
+}
+.edge-list .snr-value { color: var(--teal); }
+.edge-list .rssi-value { color: var(--amber); }
+
+/* ── Footer ─────────────────────────────────────── */
+footer {
+    padding: 0.5rem 1.5rem;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-align: center;
+}
