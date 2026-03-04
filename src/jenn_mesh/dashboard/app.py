@@ -65,6 +65,10 @@ OPENAPI_TAGS = [
     {"name": "webhooks", "description": "External system webhook notifications"},
     {"name": "notifications", "description": "Multi-channel alert routing (Slack, Teams, Email)"},
     {"name": "bulk-ops", "description": "Batch fleet operations with dry-run preview"},
+    {"name": "team-comms", "description": "Team text messaging through LoRa mesh"},
+    {"name": "tak", "description": "TAK/ATAK Cursor on Target gateway integration"},
+    {"name": "asset-tracking", "description": "Vehicle, equipment, and personnel GPS tracking via mesh"},
+    {"name": "edge-associations", "description": "JennEdge device ↔ mesh radio cross-reference"},
 ]
 
 
@@ -226,6 +230,30 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
         except Exception:
             pass  # graceful degradation — encryption audit unavailable
         try:
+            from jenn_mesh.core.team_comms_manager import TeamCommsManager
+
+            app.state.team_comms_manager = TeamCommsManager(db=db)
+        except Exception:
+            pass  # graceful degradation — team comms unavailable
+        try:
+            from jenn_mesh.core.tak_gateway import TakGateway
+
+            app.state.tak_gateway = TakGateway(db=db)
+        except Exception:
+            pass  # graceful degradation — TAK gateway unavailable
+        try:
+            from jenn_mesh.core.asset_tracker import AssetTracker
+
+            app.state.asset_tracker = AssetTracker(db=db)
+        except Exception:
+            pass  # graceful degradation — asset tracking unavailable
+        try:
+            from jenn_mesh.core.edge_association_manager import EdgeAssociationManager
+
+            app.state.edge_association_manager = EdgeAssociationManager(db=db)
+        except Exception:
+            pass  # graceful degradation — edge associations unavailable
+        try:
             from jenn_mesh.core.webhook_manager import WebhookManager
 
             app.state.webhook_manager = WebhookManager(db=db)
@@ -295,6 +323,12 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.notifications import router as notifications_router
     from jenn_mesh.dashboard.routes.partitions import router as partitions_router
     from jenn_mesh.dashboard.routes.bulk_ops import router as bulk_ops_router
+    from jenn_mesh.dashboard.routes.team_comms import router as team_comms_router
+    from jenn_mesh.dashboard.routes.tak import router as tak_router
+    from jenn_mesh.dashboard.routes.asset_tracking import router as asset_tracking_router
+    from jenn_mesh.dashboard.routes.edge_associations import (
+        router as edge_associations_router,
+    )
 
     app.include_router(health_router, tags=["health"])
     # Heartbeat router before fleet router — /fleet/mesh-status must match
@@ -331,6 +365,12 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"])
     app.include_router(partitions_router, prefix="/api/v1", tags=["topology"])
     app.include_router(bulk_ops_router, prefix="/api/v1", tags=["bulk-ops"])
+    app.include_router(team_comms_router, prefix="/api/v1", tags=["team-comms"])
+    app.include_router(tak_router, prefix="/api/v1", tags=["tak"])
+    app.include_router(asset_tracking_router, prefix="/api/v1", tags=["asset-tracking"])
+    app.include_router(
+        edge_associations_router, prefix="/api/v1", tags=["edge-associations"]
+    )
 
     # Dashboard HTML pages
     @app.get("/")

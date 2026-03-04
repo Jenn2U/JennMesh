@@ -5,6 +5,22 @@ All notable changes to JennMesh will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-03-04
+
+### Added
+
+- **TAK Server Integration / CoT Gateway** (MESH-065): `TakGateway` translates mesh node positions to Cursor on Target (CoT) XML for ATAK/WinTAK interop; bidirectional parse/generate; HMAC callsign generation; 6 API endpoints (`/tak/*`); configurable server host/port/TLS/callsign prefix
+- **Team Communication via Mesh** (MESH-043): `TeamCommsManager` sends structured text messages over LoRa mesh Channel 2; wire format `[TEAM:{channel}] message`; broadcast/team/direct channels; 220-char limit (LoRa MTU); delivery lifecycle (pending→sending→sent→delivered); MQTT integration; 5 API endpoints (`/team-comms/*`); safety gate requires `confirmed=True`
+- **Mesh-Based Asset Tracking** (MESH-053): `AssetTracker` registers vehicles, equipment, personnel, drones, sensors with GPS trail enrichment (haversine distance, speed, bearing); automatic status updates (active/idle/out_of_range); 8 API endpoints (`/assets/*`); supports zone/team/project filtering
+- **JennEdge Cross-Reference** (MESH-057): `EdgeAssociationManager` maps JennEdge devices ↔ mesh radios; combined status query ("edge offline but radio transmitting"); stale detection (radio not seen > 1hr); 8 API endpoints (`/edge-associations/*`)
+- DB schema v15: 5 new tables (`team_messages`, `tak_config`, `tak_events`, `assets`, `edge_associations`) with ~30 CRUD methods
+- 19 OpenAPI tag groups (was 15); 171 API routes (was 144)
+- 152 new tests (1536 → 1688 total)
+
+### Fixed
+
+- DB parameter binding order in `create_team_message()` — message/recipient columns were swapped
+
 ## [0.6.0] - 2026-03-04
 
 ### Added
