@@ -66,8 +66,8 @@ stages:
             displayName: "Use Python $(pythonVersion)"
 
           - script: |
-              pip install -e ".[test]"
-            displayName: "Install with test extras"
+              pip install -e ".[test,dashboard]"
+            displayName: "Install with test + dashboard extras"
 
           - script: |
               pytest tests/ -v --tb=short --junitxml=test-results.xml
