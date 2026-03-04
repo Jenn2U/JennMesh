@@ -2,8 +2,8 @@
 
 *Part of the JENN Intelligent Ecosystem — Centralized Meshtastic LoRa radio fleet management.*
 
-**Last Updated**: 2026-03-03 (v0.5.0 released)
-**Current Version**: 0.5.0
+**Last Updated**: 2026-03-04
+**Current Version**: 0.7.0
 
 ---
 
@@ -27,7 +27,9 @@
 | **v0.3.0** | Sprint 5-6 | Hardening & Resilience — production hardening (P0), mesh recovery, emergency broadcast, heartbeat | ✅ Released |
 | **v0.4.0** | Sprint 7-8 | Intelligence & Analytics — Ollama, geofencing, topology viz, coverage mapping | ✅ Released |
 | **v0.5.0** | Sprint 9-10 | Automation — provisioning advisor, lost node AI, env telemetry | ✅ Released |
-| **v1.0.0** | Sprint 11-12 | Integration & GA — iJENN2u, team comms, webhooks, API versioning | Planned |
+| **v0.6.0** | Sprint 11-12 | Security, APIs & Notifications — encryption audit, webhooks, partitions, bulk ops | ✅ Released |
+| **v0.7.0** | Sprint 13-14 | Field Operations & Interop — TAK gateway, team comms, asset tracking, JennEdge cross-ref | ✅ Released |
+| **v1.0.0** | Sprint 15-16 | Integration & GA — iJENN2u mobile, multi-tenant, HA integration | Planned |
 | **v1.1.0+** | Ongoing | Advanced — ML predictions, multi-mesh bridging, satellite integration | Backlog |
 
 ---
@@ -233,7 +235,7 @@ Click node → device detail panel.
 Overlay on map or standalone view.
 
 ### MESH-065: TAK Server Integration — CoT Gateway
-**Priority**: P2 | **Effort**: L | **Status**: Backlog
+**Priority**: P2 | **Effort**: L | **Status**: Done
 Bidirectional gateway between JennMesh and TAK (Team Awareness Kit) ecosystem.
 **CoT Gateway Module** (`core/tak_gateway.py`):
   - Translate JennMesh device positions to CoT (Cursor on Target) XML events.
@@ -539,8 +541,8 @@ View fleet health summary in the mobile app.
 Lost node locator accessible from mobile (field search assistance).
 **Requires**: iJENN2u API client additions, BLE bridge in mobile app.
 
-### MESH-043: Team Communication via Mesh
-**Priority**: P2 | **Effort**: L | **Status**: Backlog
+### MESH-043: Team Communication via Mesh ⬆️ PROMOTED to v0.7.0
+**Priority**: P2 | **Effort**: L | **Status**: Done
 Text messaging through the mesh for field teams.
 Message history stored in JennMesh database (not just on device).
 Channels: per-team, emergency, broadcast.
@@ -626,8 +628,8 @@ Alert payload: compact JSON → mesh text message → MQTT bridge → JennSentry
 Ensures monitoring continuity even during internet outages.
 **This closes a major resilience gap in the JENN architecture.**
 
-### MESH-053: Mesh-Based Asset Tracking
-**Priority**: P2 | **Effort**: L | **Status**: Backlog
+### MESH-053: Mesh-Based Asset Tracking ⬆️ PROMOTED to v0.7.0
+**Priority**: P2 | **Effort**: L | **Status**: Done
 Track vehicles, equipment, and personnel via mesh-connected GPS trackers.
 Devices with TRACKER role report position at configurable intervals.
 Dashboard: asset tracking view with trail history, speed, heading.
@@ -660,8 +662,8 @@ For solar-powered relay stations:
   - Morning recovery: increase Tx power as solar charges battery
 Remote admin commands to adjust power settings via PKC.
 
-### MESH-057: JennEdge Cross-Reference
-**Priority**: P2 | **Effort**: M | **Status**: Backlog
+### MESH-057: JennEdge Cross-Reference ⬆️ PROMOTED to v0.7.0
+**Priority**: P2 | **Effort**: M | **Status**: Done
 Maintain a mapping between JennEdge device IDs and their associated radio node IDs.
 When JennEdge reports a device, JennMesh knows which radio is physically co-located.
 Enables: "Edge node X is offline — but its radio is still transmitting from GPS coords Y"

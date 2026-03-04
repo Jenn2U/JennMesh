@@ -124,21 +124,7 @@ stages:
               artifact: "jenn-mesh-release"
             displayName: "Publish release artifact"
 
-  # ── Deploy Stage ──────────────────────────────────────────────
-  - stage: Deploy_Dev
-    displayName: "Deploy to Dev"
-    dependsOn: Release
-    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
-    jobs:
-      - deployment: DeployDev
-        displayName: "Deploy to Dev Container App"
-        environment: "jennmesh-dev"
-        strategy:
-          runOnce:
-            deploy:
-              steps:
-                - script: |
-                    echo "Deploy to jennmesh-dev Container App"
-                    echo "Image: jennmesh:$(Build.BuildId)"
-                    # az containerapp update --name jennmesh-dev ...
-                  displayName: "Deploy to dev"
+  # Deployment is handled by separate per-node pipelines:
+  #   - deploy-opi-orangeprod.yml (OrangePiProd)
+  #   - deploy-meshbox-01.yml (meshbox-01)
+  # These auto-trigger on successful Release via resources.pipelines.

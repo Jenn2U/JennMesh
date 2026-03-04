@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JennMesh — Ask AI</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        .chat-container {
+            max-width: 800px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 160px);
+        }
+        .chat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #2a2a2a;
+            margin-bottom: 12px;
+        }
+        .chat-header h2 {
+            margin: 0;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 1.3rem;
+            color: #e0e0e0;
+        }
+        .ollama-status {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.8rem;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: #1a1a1a;
+        }
+        .ollama-status.online { color: #0D7377; border: 1px solid #0D7377; }
+        .ollama-status.offline { color: #D97706; border: 1px solid #D97706; }
+
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .msg {
+            max-width: 85%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            word-wrap: break-word;
+        }
+        .msg-user {
+            align-self: flex-end;
+            background: #0D7377;
+            color: #fff;
+            border-bottom-right-radius: 4px;
+        }
+        .msg-assistant {
+            align-self: flex-start;
+            background: #1e1e1e;
+            color: #e0e0e0;
+            border: 1px solid #2a2a2a;
+            border-bottom-left-radius: 4px;
+        }
+        .msg-meta {
+            font-size: 0.7rem;
+            color: #888;
+            margin-top: 6px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .msg-thinking {
+            align-self: flex-start;
+            color: #0D7377;
+            font-style: italic;
+            padding: 10px 14px;
+        }
+        .msg-thinking .dot-pulse { display: inline-block; animation: pulse 1.2s infinite; }
+        @keyframes pulse { 0%,80%,100% { opacity: 0.3; } 40% { opacity: 1; } }
+
+        .canned-queries {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 12px 0;
+        }
+        .canned-btn {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.8rem;
+            padding: 6px 12px;
+            border: 1px solid #2a2a2a;
+            border-radius: 16px;
+            background: #1a1a1a;
+            color: #ccc;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .canned-btn:hover {
+            border-color: #0D7377;
+            color: #0D7377;
+            background: rgba(13,115,119,0.08);
+        }
+
+        .input-bar {
+            display: flex;
+            gap: 8px;
+            padding: 12px 0;
+            border-top: 1px solid #2a2a2a;
+        }
+        .input-bar input {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9rem;
+            outline: none;
+        }
+        .input-bar input:focus { border-color: #0D7377; }
+        .input-bar button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            background: #0D7377;
+            color: #fff;
+            font-family: 'DM Sans', sans-serif;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .input-bar button:hover { background: #0a5c5f; }
+        .input-bar button:disabled { background: #333; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <header class="top-bar">
+        <div class="logo">
+            <span class="logo-icon">&#9041;</span>
+            <h1>JennMesh</h1>
+            <span class="version">v{{ version }}</span>
+        </div>
+        <nav>
+            <a href="/" class="nav-link">Dashboard</a>
+            <a href="/topology" class="nav-link">Topology</a>
+            <a href="/fleet-query" class="nav-link active">Ask AI</a>
+        </nav>
+    </header>
+
+    <main>
+        <div class="chat-container">
+            <div class="chat-header">
+                <h2>Fleet Query Assistant</h2>
+                <span id="ollama-badge" class="ollama-status offline">Checking...</span>
+            </div>
+
+            <div class="messages" id="messages"></div>
+
+            <div class="canned-queries" id="canned-queries"></div>
+
+            <div class="input-bar">
+                <input type="text" id="query-input" placeholder="Ask about your fleet..." autocomplete="off">
+                <button id="send-btn">Send</button>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <span>JennMesh v{{ version }} — Magnivation JENN Ecosystem</span>
+    </footer>
+
+    <script>
+        const messagesEl = document.getElementById('messages');
+        const inputEl = document.getElementById('query-input');
+        const sendBtn = document.getElementById('send-btn');
+        const cannedEl = document.getElementById('canned-queries');
+        const ollamaBadge = document.getElementById('ollama-badge');
+
+        function addMessage(text, role, meta) {
+            const div = document.createElement('div');
+            div.className = 'msg msg-' + role;
+            div.textContent = text;
+            if (meta) {
+                const metaEl = document.createElement('div');
+                metaEl.className = 'msg-meta';
+                metaEl.textContent = meta;
+                div.appendChild(metaEl);
+            }
+            messagesEl.appendChild(div);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            return div;
+        }
+
+        function showThinking() {
+            const div = document.createElement('div');
+            div.className = 'msg-thinking';
+            div.id = 'thinking';
+            const textNode = document.createTextNode('Thinking');
+            div.appendChild(textNode);
+            const dots = document.createElement('span');
+            dots.className = 'dot-pulse';
+            dots.textContent = '...';
+            div.appendChild(dots);
+            messagesEl.appendChild(div);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function hideThinking() {
+            const el = document.getElementById('thinking');
+            if (el) el.remove();
+        }
+
+        async function sendQuestion(question) {
+            if (!question.trim()) return;
+            addMessage(question, 'user');
+            inputEl.value = '';
+            sendBtn.disabled = true;
+            showThinking();
+
+            try {
+                const resp = await fetch('/api/v1/fleet-query/ask', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question: question })
+                });
+                const data = await resp.json();
+                hideThinking();
+
+                if (resp.ok) {
+                    const meta = data.source + ' \u00b7 ' + data.duration_ms + 'ms';
+                    addMessage(data.answer, 'assistant', meta);
+                } else {
+                    addMessage('Error: ' + (data.detail || resp.statusText), 'assistant');
+                }
+            } catch (err) {
+                hideThinking();
+                addMessage('Network error: ' + err.message, 'assistant');
+            }
+            sendBtn.disabled = false;
+            inputEl.focus();
+        }
+
+        sendBtn.addEventListener('click', function() { sendQuestion(inputEl.value); });
+        inputEl.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') sendQuestion(inputEl.value);
+        });
+
+        // Load status
+        fetch('/api/v1/fleet-query/status')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.ollama_available) {
+                    ollamaBadge.textContent = 'Ollama Online';
+                    ollamaBadge.className = 'ollama-status online';
+                } else {
+                    ollamaBadge.textContent = 'Keyword Mode';
+                    ollamaBadge.className = 'ollama-status offline';
+                }
+            })
+            .catch(function() {
+                ollamaBadge.textContent = 'Offline';
+            });
+
+        // Load canned queries
+        fetch('/api/v1/fleet-query/canned')
+            .then(function(r) { return r.json(); })
+            .then(function(queries) {
+                queries.forEach(function(q) {
+                    var btn = document.createElement('button');
+                    btn.className = 'canned-btn';
+                    btn.textContent = q.question;
+                    btn.title = q.description;
+                    btn.addEventListener('click', function() { sendQuestion(q.question); });
+                    cannedEl.appendChild(btn);
+                });
+            });
+
+        // Load history
+        fetch('/api/v1/fleet-query/history?limit=10')
+            .then(function(r) { return r.json(); })
+            .then(function(history) {
+                history.reverse().forEach(function(h) {
+                    addMessage(h.question, 'user');
+                    var meta = h.source + ' \u00b7 ' + h.duration_ms + 'ms';
+                    addMessage(h.result_summary || 'No response recorded', 'assistant', meta);
+                });
+            });
+
+        inputEl.focus();
+    </script>
+</body>
+</html>

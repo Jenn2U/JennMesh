@@ -1,0 +1,33 @@
+trigger:
+  branches:
+    include:
+      - '*'
+  tags:
+    include:
+      - '*'
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: GitHubMirrorSecrets
+
+steps:
+  - checkout: self
+    fetchDepth: 0
+    persistCredentials: true
+
+  - script: |
+      git config --global user.email "mirror-bot@magnivation.com"
+      git config --global user.name "Mirror Bot"
+      git remote add github https://$(GITHUB_PAT)@github.com/Jenn2U/JennMesh.git || git remote set-url github https://$(GITHUB_PAT)@github.com/Jenn2U/JennMesh.git
+      # Push all remote tracking branches (excluding HEAD) as local branches on GitHub
+      for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin/ | grep -v '/HEAD$'); do
+        branch=${ref#origin/}
+        git push github "refs/remotes/origin/${branch}:refs/heads/${branch}" --force
+      done
+      # Push all tags
+      git push github --tags --force
+    displayName: 'Mirror to GitHub: Jenn2U/JennMesh'
+    env:
+      GITHUB_PAT: $(GITHUB_PAT)

@@ -12,8 +12,8 @@ from jenn_mesh.db import SCHEMA_VERSION, MeshDatabase
 class TestSchemaV12:
     """Verify schema version bumped and new tables exist."""
 
-    def test_schema_version_is_14(self):
-        assert SCHEMA_VERSION == 14
+    def test_schema_version_is_16(self):
+        assert SCHEMA_VERSION == 16
 
     def test_geofences_table_exists(self, db: MeshDatabase):
         with db.connection() as conn:

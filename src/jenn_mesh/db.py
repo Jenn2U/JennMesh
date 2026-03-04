@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator, Optional
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 16
 
 SCHEMA_SQL = """
 -- Device registry: every known radio in the fleet
@@ -500,6 +500,105 @@ CREATE TABLE IF NOT EXISTS bulk_operations (
 CREATE INDEX IF NOT EXISTS idx_bulk_ops_status
     ON bulk_operations(status, created_at DESC);
 
+-- v0.7.0: Team communication messages
+CREATE TABLE IF NOT EXISTS team_messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel         TEXT NOT NULL DEFAULT 'broadcast',
+    sender          TEXT NOT NULL,
+    recipient       TEXT,
+    message         TEXT NOT NULL,
+    mesh_channel_index INTEGER NOT NULL DEFAULT 2,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    sent_at         TEXT,
+    delivered_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_team_messages_channel_time
+    ON team_messages(channel, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_team_messages_status
+    ON team_messages(status, created_at DESC);
+
+-- v0.7.0: TAK gateway configuration and event log
+CREATE TABLE IF NOT EXISTS tak_config (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    host            TEXT NOT NULL,
+    port            INTEGER NOT NULL DEFAULT 8087,
+    use_tls         INTEGER NOT NULL DEFAULT 0,
+    callsign_prefix TEXT NOT NULL DEFAULT 'JENN-',
+    stale_timeout_seconds INTEGER NOT NULL DEFAULT 600,
+    enabled         INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS tak_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    uid             TEXT NOT NULL,
+    cot_type        TEXT NOT NULL DEFAULT 'a-f-G',
+    callsign        TEXT NOT NULL,
+    node_id         TEXT NOT NULL,
+    direction       TEXT NOT NULL DEFAULT 'outbound',
+    latitude        REAL,
+    longitude       REAL,
+    altitude        REAL,
+    raw_xml         TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (node_id) REFERENCES devices(node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_tak_events_node_time
+    ON tak_events(node_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tak_events_direction
+    ON tak_events(direction, created_at DESC);
+
+-- v0.7.0: Asset tracking
+CREATE TABLE IF NOT EXISTS assets (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,
+    asset_type      TEXT NOT NULL DEFAULT 'equipment',
+    node_id         TEXT NOT NULL,
+    zone            TEXT,
+    team            TEXT,
+    project         TEXT,
+    status          TEXT NOT NULL DEFAULT 'active',
+    metadata_json   TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (node_id) REFERENCES devices(node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_assets_node ON assets(node_id);
+CREATE INDEX IF NOT EXISTS idx_assets_type ON assets(asset_type);
+CREATE INDEX IF NOT EXISTS idx_assets_zone ON assets(zone);
+
+-- v0.7.0: JennEdge cross-reference associations
+CREATE TABLE IF NOT EXISTS edge_associations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    edge_device_id  TEXT NOT NULL UNIQUE,
+    node_id         TEXT NOT NULL,
+    edge_hostname   TEXT,
+    edge_ip         TEXT,
+    association_type TEXT NOT NULL DEFAULT 'co-located',
+    status          TEXT NOT NULL DEFAULT 'active',
+    last_verified   TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (node_id) REFERENCES devices(node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_edge_assoc_node ON edge_associations(node_id);
+CREATE INDEX IF NOT EXISTS idx_edge_assoc_status ON edge_associations(status);
+
+-- v0.8.0: Natural language fleet query log (MESH-046)
+CREATE TABLE IF NOT EXISTS nl_query_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    question        TEXT NOT NULL,
+    query_plan_json TEXT,
+    result_summary  TEXT,
+    source          TEXT NOT NULL DEFAULT 'unknown',
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    ollama_available INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_nl_query_log_time ON nl_query_log(created_at DESC);
+
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version         INTEGER NOT NULL,
@@ -552,6 +651,10 @@ class MeshDatabase:
                     # v12 → v13: env_telemetry (CREATE IF NOT EXISTS only)
                     # v13 → v14: webhooks, webhook_deliveries, notification_channels,
                     #            notification_rules, partition_events, bulk_operations
+                    # v14 → v15: team_messages, tak_config, tak_events, assets,
+                    #            edge_associations (v0.7.0 Field Operations & Interop)
+                    #            (CREATE IF NOT EXISTS only)
+                    # v15 → v16: nl_query_log (v0.8.0 MESH-046 NL Fleet Queries)
                     #            (CREATE IF NOT EXISTS only)
                     if current_version < 4:
                         # Add new columns (safe: ALTER TABLE ADD COLUMN is idempotent-ish,
@@ -2661,3 +2764,421 @@ class MeshDatabase:
                 (op_id,),
             )
             return cursor.rowcount > 0
+
+    # ── Team Communication (v0.7.0) ──────────────────────────────────────
+
+    def create_team_message(
+        self,
+        channel: str,
+        sender: str,
+        message: str,
+        recipient: str | None = None,
+        mesh_channel_index: int = 2,
+    ) -> int:
+        """Create a team communication message. Returns message ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO team_messages
+                   (channel, sender, recipient, message, mesh_channel_index, status)
+                   VALUES (?, ?, ?, ?, ?, 'pending')""",
+                (channel, sender, recipient, message, mesh_channel_index),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_team_message(self, msg_id: int) -> Optional[dict]:
+        """Get a single team message by ID."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM team_messages WHERE id = ?", (msg_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_team_messages(
+        self,
+        channel: str | None = None,
+        limit: int = 50,
+        hours: int | None = None,
+    ) -> list[dict]:
+        """List team messages, optionally filtered by channel and time window."""
+        clauses, params = [], []
+        if channel:
+            clauses.append("channel = ?")
+            params.append(channel)
+        if hours:
+            clauses.append(
+                "created_at >= datetime('now', ?)"
+            )
+            params.append(f"-{hours} hours")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self.connection() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM team_messages {where} ORDER BY created_at DESC LIMIT ?",
+                (*params, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_team_message_status(
+        self, msg_id: int, status: str, **kwargs: object
+    ) -> bool:
+        """Update team message status and optional timestamp fields."""
+        sets = ["status = ?"]
+        params: list[object] = [status]
+        for field in ("sent_at", "delivered_at"):
+            if field in kwargs:
+                sets.append(f"{field} = ?")
+                params.append(kwargs[field])
+        params.append(msg_id)
+        with self.connection() as conn:
+            cursor = conn.execute(
+                f"UPDATE team_messages SET {', '.join(sets)} WHERE id = ?",
+                params,
+            )
+            return cursor.rowcount > 0
+
+    # ── TAK Gateway (v0.7.0) ─────────────────────────────────────────────
+
+    def upsert_tak_config(
+        self,
+        host: str,
+        port: int = 8087,
+        use_tls: bool = False,
+        callsign_prefix: str = "JENN-",
+        stale_timeout_seconds: int = 600,
+        enabled: bool = True,
+    ) -> int:
+        """Create or update TAK server configuration. Returns config ID."""
+        with self.connection() as conn:
+            existing = conn.execute(
+                "SELECT id FROM tak_config LIMIT 1"
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    """UPDATE tak_config
+                       SET host = ?, port = ?, use_tls = ?, callsign_prefix = ?,
+                           stale_timeout_seconds = ?, enabled = ?,
+                           updated_at = datetime('now')
+                       WHERE id = ?""",
+                    (host, port, int(use_tls), callsign_prefix,
+                     stale_timeout_seconds, int(enabled), existing["id"]),
+                )
+                return existing["id"]
+            cursor = conn.execute(
+                """INSERT INTO tak_config
+                   (host, port, use_tls, callsign_prefix,
+                    stale_timeout_seconds, enabled)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (host, port, int(use_tls), callsign_prefix,
+                 stale_timeout_seconds, int(enabled)),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_tak_config(self) -> Optional[dict]:
+        """Get current TAK server configuration."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM tak_config ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            return dict(row) if row else None
+
+    def log_tak_event(
+        self,
+        uid: str,
+        cot_type: str,
+        callsign: str,
+        node_id: str,
+        direction: str = "outbound",
+        latitude: float | None = None,
+        longitude: float | None = None,
+        altitude: float | None = None,
+        raw_xml: str | None = None,
+    ) -> int:
+        """Log a CoT event sent/received through the TAK gateway."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO tak_events
+                   (uid, cot_type, callsign, node_id, direction,
+                    latitude, longitude, altitude, raw_xml)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (uid, cot_type, callsign, node_id, direction,
+                 latitude, longitude, altitude, raw_xml),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def list_tak_events(
+        self,
+        direction: str | None = None,
+        node_id: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """List TAK CoT events, optionally filtered."""
+        clauses, params = [], []
+        if direction:
+            clauses.append("direction = ?")
+            params.append(direction)
+        if node_id:
+            clauses.append("node_id = ?")
+            params.append(node_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self.connection() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM tak_events {where} ORDER BY created_at DESC LIMIT ?",
+                (*params, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_tak_event_counts(self) -> dict:
+        """Get event counts by direction."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT direction, COUNT(*) as count
+                   FROM tak_events GROUP BY direction"""
+            ).fetchall()
+            return {r["direction"]: r["count"] for r in rows}
+
+    # ── Asset Tracking (v0.7.0) ──────────────────────────────────────────
+
+    def create_asset(
+        self,
+        name: str,
+        asset_type: str,
+        node_id: str,
+        zone: str | None = None,
+        team: str | None = None,
+        project: str | None = None,
+        metadata_json: str | None = None,
+    ) -> int:
+        """Register a trackable asset. Returns asset ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO assets
+                   (name, asset_type, node_id, zone, team, project, metadata_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (name, asset_type, node_id, zone, team, project, metadata_json),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_asset(self, asset_id: int) -> Optional[dict]:
+        """Get a single asset by ID."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM assets WHERE id = ?", (asset_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_asset_by_node(self, node_id: str) -> Optional[dict]:
+        """Get asset associated with a mesh node."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM assets WHERE node_id = ?", (node_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_assets(
+        self,
+        asset_type: str | None = None,
+        zone: str | None = None,
+        team: str | None = None,
+        status: str | None = None,
+    ) -> list[dict]:
+        """List assets with optional filters."""
+        clauses, params = [], []
+        if asset_type:
+            clauses.append("asset_type = ?")
+            params.append(asset_type)
+        if zone:
+            clauses.append("zone = ?")
+            params.append(zone)
+        if team:
+            clauses.append("team = ?")
+            params.append(team)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self.connection() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM assets {where} ORDER BY name", params
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_asset(self, asset_id: int, **kwargs: object) -> bool:
+        """Update asset fields."""
+        allowed = {"name", "asset_type", "node_id", "zone", "team",
+                    "project", "status", "metadata_json"}
+        sets, params = ["updated_at = datetime('now')"], []
+        for k, v in kwargs.items():
+            if k in allowed:
+                sets.append(f"{k} = ?")
+                params.append(v)
+        if len(sets) == 1:
+            return False
+        params.append(asset_id)
+        with self.connection() as conn:
+            cursor = conn.execute(
+                f"UPDATE assets SET {', '.join(sets)} WHERE id = ?", params
+            )
+            return cursor.rowcount > 0
+
+    def delete_asset(self, asset_id: int) -> bool:
+        """Delete an asset."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM assets WHERE id = ?", (asset_id,)
+            )
+            return cursor.rowcount > 0
+
+    def get_asset_position_trail(
+        self,
+        node_id: str,
+        hours: int = 24,
+        limit: int = 500,
+    ) -> list[dict]:
+        """Get position trail for an asset's node_id from positions table."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM positions
+                   WHERE node_id = ?
+                     AND timestamp >= datetime('now', ?)
+                   ORDER BY timestamp DESC LIMIT ?""",
+                (node_id, f"-{hours} hours", limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ── Edge Associations (v0.7.0) ───────────────────────────────────────
+
+    def create_edge_association(
+        self,
+        edge_device_id: str,
+        node_id: str,
+        edge_hostname: str | None = None,
+        edge_ip: str | None = None,
+        association_type: str = "co-located",
+    ) -> int:
+        """Create an edge-to-radio association. Returns association ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO edge_associations
+                   (edge_device_id, node_id, edge_hostname, edge_ip,
+                    association_type, last_verified)
+                   VALUES (?, ?, ?, ?, ?, datetime('now'))""",
+                (edge_device_id, node_id, edge_hostname, edge_ip,
+                 association_type),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_edge_association_by_edge(
+        self, edge_device_id: str
+    ) -> Optional[dict]:
+        """Get association for a JennEdge device."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM edge_associations WHERE edge_device_id = ?",
+                (edge_device_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_edge_association_by_node(self, node_id: str) -> Optional[dict]:
+        """Get association for a mesh radio node."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM edge_associations WHERE node_id = ?",
+                (node_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_edge_associations(
+        self, status: str | None = None
+    ) -> list[dict]:
+        """List all edge-radio associations."""
+        if status:
+            query = "SELECT * FROM edge_associations WHERE status = ? ORDER BY edge_device_id"
+            params: tuple = (status,)
+        else:
+            query = "SELECT * FROM edge_associations ORDER BY edge_device_id"
+            params = ()
+        with self.connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_edge_association(
+        self, edge_device_id: str, **kwargs: object
+    ) -> bool:
+        """Update edge association fields."""
+        allowed = {"node_id", "edge_hostname", "edge_ip",
+                    "association_type", "status"}
+        sets = ["updated_at = datetime('now')", "last_verified = datetime('now')"]
+        params: list[object] = []
+        for k, v in kwargs.items():
+            if k in allowed:
+                sets.append(f"{k} = ?")
+                params.append(v)
+        if len(sets) == 2:
+            return False
+        params.append(edge_device_id)
+        with self.connection() as conn:
+            cursor = conn.execute(
+                f"UPDATE edge_associations SET {', '.join(sets)} WHERE edge_device_id = ?",
+                params,
+            )
+            return cursor.rowcount > 0
+
+    def delete_edge_association(self, edge_device_id: str) -> bool:
+        """Delete an edge-radio association."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM edge_associations WHERE edge_device_id = ?",
+                (edge_device_id,),
+            )
+            return cursor.rowcount > 0
+
+    def get_edge_radio_status(self, edge_device_id: str) -> Optional[dict]:
+        """Get combined edge + radio status for cross-reference display."""
+        with self.connection() as conn:
+            row = conn.execute(
+                """SELECT ea.*, d.battery_level, d.signal_rssi, d.signal_snr,
+                          d.latitude, d.longitude, d.last_seen, d.mesh_status
+                   FROM edge_associations ea
+                   LEFT JOIN devices d ON ea.node_id = d.node_id
+                   WHERE ea.edge_device_id = ?""",
+                (edge_device_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    # --- Natural language query log methods (MESH-046) ---
+
+    def log_nl_query(
+        self,
+        question: str,
+        *,
+        query_plan_json: Optional[str] = None,
+        result_summary: Optional[str] = None,
+        source: str = "unknown",
+        duration_ms: int = 0,
+        ollama_available: bool = False,
+    ) -> int:
+        """Log a natural language fleet query. Returns the new row id."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO nl_query_log
+                   (question, query_plan_json, result_summary, source,
+                    duration_ms, ollama_available)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    question,
+                    query_plan_json,
+                    result_summary,
+                    source,
+                    duration_ms,
+                    1 if ollama_available else 0,
+                ),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_nl_query_history(self, limit: int = 20) -> list[dict]:
+        """Get recent NL query history, most recent first."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM nl_query_log ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]

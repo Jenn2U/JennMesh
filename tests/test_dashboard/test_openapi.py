@@ -60,11 +60,16 @@ class TestOpenAPISpec:
 
     def test_openapi_tags_constant(self):
         """Verify the OPENAPI_TAGS constant has expected structure."""
-        assert len(OPENAPI_TAGS) == 15
+        assert len(OPENAPI_TAGS) == 20
         tag_names = [t["name"] for t in OPENAPI_TAGS]
         assert "health" in tag_names
         assert "webhooks" in tag_names
         assert "bulk-ops" in tag_names
+        assert "team-comms" in tag_names
+        assert "tak" in tag_names
+        assert "asset-tracking" in tag_names
+        assert "edge-associations" in tag_names
+        assert "fleet-query" in tag_names
         for tag in OPENAPI_TAGS:
             assert "description" in tag
 

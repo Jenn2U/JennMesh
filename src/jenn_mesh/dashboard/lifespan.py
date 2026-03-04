@@ -174,7 +174,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 db=app.state.db, webhook_manager=wh_mgr
             )
         except Exception:
-            logger.exception("Notification dispatcher init failed — notification features unavailable")
+            logger.exception(
+                "Notification dispatcher init failed — notification features unavailable"
+            )
+
+    # Best-effort fleet query engine init (with real Ollama client)
+    if not hasattr(app.state, "fleet_query_engine") and getattr(app.state, "db", None) is not None:
+        try:
+            from jenn_mesh.core.fleet_query_engine import FleetQueryEngine
+            from jenn_mesh.inference.ollama_client import OllamaClient
+
+            ollama = OllamaClient()
+            app.state.fleet_query_engine = FleetQueryEngine(db=app.state.db, ollama=ollama)
+        except Exception:
+            logger.exception("Fleet query engine init failed — NL query features unavailable")
 
     if not hasattr(app.state, "startup_time"):
         app.state.startup_time = datetime.now(timezone.utc)

@@ -271,6 +271,63 @@ def main() -> None:
                 )
             console.print(table)
 
+    # ── Ask command (NL fleet queries) ─────────────────────────────
+
+    @cli.command()
+    @click.argument("question", nargs=-1, required=True)
+    @click.pass_context
+    def ask(ctx: click.Context, question: tuple[str, ...]) -> None:
+        """Ask a natural language question about the fleet.
+
+        Uses Ollama (if available) for AI-powered query parsing,
+        with keyword fallback when Ollama is unavailable.
+
+        Examples:
+            jenn-mesh ask "how many nodes are online?"
+            jenn-mesh ask which nodes have low battery
+        """
+        import asyncio
+
+        from rich.console import Console
+        from rich.panel import Panel
+
+        from jenn_mesh.core.fleet_query_engine import FleetQueryEngine
+
+        db = ctx.obj["db"]
+        console = Console()
+        full_question = " ".join(question)
+
+        # Try to create engine with Ollama if available
+        ollama = None
+        try:
+            from jenn_mesh.inference.ollama_client import OllamaClient
+
+            ollama = OllamaClient()
+        except Exception:
+            pass
+
+        engine = FleetQueryEngine(db=db, ollama=ollama)
+
+        with console.status("[bold teal]Thinking...[/bold teal]"):
+            result = asyncio.get_event_loop().run_until_complete(engine.ask(full_question))
+
+        # Build output
+        source_tag = f"[dim]source: {result.source}[/dim]"
+        if result.ollama_available:
+            source_tag += " [green](Ollama)[/green]"
+        duration_tag = f"[dim]{result.duration_ms}ms[/dim]"
+
+        answer_text = f"{result.answer}\n\n{source_tag}  {duration_tag}"
+
+        console.print(
+            Panel(
+                answer_text,
+                title=f"[bold]{full_question}[/bold]",
+                border_style="teal",
+                padding=(1, 2),
+            )
+        )
+
     # ── Serve command ───────────────────────────────────────────────
 
     @cli.command()

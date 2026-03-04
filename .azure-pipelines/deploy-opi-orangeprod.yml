@@ -1,0 +1,49 @@
+# Deploy JennMesh to JENNOrangeProd (Orange Pi 6 Plus — Production)
+#
+# Auto-triggers after JennMesh CI succeeds on main.
+# Can also be triggered manually.
+#
+# Prerequisites:
+#   1. SSH service connection "ssh-opi-orangeprod-mesh" in JennMesh project
+#   2. Release artifact from JennMesh CI pipeline
+#   3. NAS-Agents pool accessible (LAN connectivity to 10.10.50.x)
+
+trigger: none
+
+pr: none
+
+# Consume release artifact from CI pipeline
+resources:
+  pipelines:
+    - pipeline: JennMeshCI
+      source: 'JennMesh CI'
+      trigger:
+        branches:
+          include:
+            - main
+
+pool: NAS-Agents
+
+variables:
+  targetHost: '10.10.50.181'
+  sshConnection: 'ssh-opi-orangeprod-mesh'
+  lanSubnet: '10.10.50.0/24'
+
+stages:
+  - stage: Deploy
+    displayName: 'Deploy to OrangePiProd'
+    jobs:
+      - deployment: DeployOrangePiProd
+        displayName: 'Deploy JennMesh to OrangePiProd'
+        environment: 'jennmesh-orangepiprod'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: templates/deploy-mesh-server.yml
+                  parameters:
+                    nodeName: 'OrangePiProd'
+                    sshServiceConnection: $(sshConnection)
+                    targetHost: $(targetHost)
+                    lanSubnet: $(lanSubnet)
+                    healthCheckRetries: 5
