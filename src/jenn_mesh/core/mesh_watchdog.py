@@ -86,9 +86,7 @@ class MeshWatchdog:
         # Monotonic timestamps of last successful run per check.
         # Initialised to -inf so every check fires on the first cycle
         # regardless of system uptime (time.monotonic() starts at boot).
-        self._last_run: dict[str, float] = {
-            name: float("-inf") for name in self.DEFAULT_INTERVALS
-        }
+        self._last_run: dict[str, float] = {name: float("-inf") for name in self.DEFAULT_INTERVALS}
 
         # Running stats
         self._total_cycles = 0
