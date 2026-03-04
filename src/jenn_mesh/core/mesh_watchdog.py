@@ -58,6 +58,7 @@ class MeshWatchdog:
         "post_push_failures": 120,  # 2 min
         "sync_health": 300,  # 5 min
         "encryption_audit": 600,  # 10 min
+        "partition_detection": 300,  # 5 min
     }
 
     DEFAULT_THRESHOLDS: dict[str, Any] = {
@@ -103,6 +104,7 @@ class MeshWatchdog:
             "post_push_failures": self._check_post_push_failures,
             "sync_health": self._check_sync_health,
             "encryption_audit": self._check_encryption_audit,
+            "partition_detection": self._check_partition_detection,
         }
 
     # ── Public API ────────────────────────────────────────────────────
@@ -450,6 +452,13 @@ class MeshWatchdog:
             "new_alerts": new_alerts,
             "auto_resolved": resolved,
         }
+
+    def _check_partition_detection(self) -> dict:
+        """Detect network partitions — splits and merges in the mesh graph."""
+        from jenn_mesh.core.partition_detector import PartitionDetector
+
+        detector = PartitionDetector(db=self.db)
+        return detector.check_partitions()
 
 
 # ── Async loop (started by lifespan) ─────────────────────────────────

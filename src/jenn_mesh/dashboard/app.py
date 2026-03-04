@@ -293,6 +293,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.env_telemetry import router as env_telemetry_router
     from jenn_mesh.dashboard.routes.webhooks import router as webhooks_router
     from jenn_mesh.dashboard.routes.notifications import router as notifications_router
+    from jenn_mesh.dashboard.routes.partitions import router as partitions_router
 
     app.include_router(health_router, tags=["health"])
     # Heartbeat router before fleet router — /fleet/mesh-status must match
@@ -327,6 +328,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(encryption_router, prefix="/api/v1", tags=["monitoring"])
     app.include_router(webhooks_router, prefix="/api/v1", tags=["webhooks"])
     app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"])
+    app.include_router(partitions_router, prefix="/api/v1", tags=["topology"])
 
     # Dashboard HTML pages
     @app.get("/")

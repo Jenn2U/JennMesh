@@ -230,7 +230,22 @@ async def health_check(request: Request) -> dict:
     else:
         components["notifications"] = {"status": "unavailable"}
 
-    # 16. Uptime
+    # 16. Partition detection
+    pd = getattr(request.app.state, "partition_detector", None)
+    if pd is not None:
+        try:
+            status = pd.get_partition_status()
+            components["partition_detection"] = {
+                "status": "healthy",
+                "is_partitioned": status.get("is_partitioned", False),
+                "component_count": status.get("component_count", 1),
+            }
+        except Exception as exc:
+            components["partition_detection"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["partition_detection"] = {"status": "unavailable"}
+
+    # 17. Uptime
     startup_time = getattr(request.app.state, "startup_time", None)
     if startup_time is not None:
         uptime = (datetime.now(timezone.utc) - startup_time).total_seconds()
