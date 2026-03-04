@@ -214,7 +214,23 @@ async def health_check(request: Request) -> dict:
     else:
         components["webhooks"] = {"status": "unavailable"}
 
-    # 15. Uptime
+    # 15. Notifications
+    nd = getattr(request.app.state, "notification_dispatcher", None)
+    if nd is not None:
+        try:
+            channels = db.list_notification_channels(active_only=True) if db else []
+            rules = db.list_notification_rules(active_only=True) if db else []
+            components["notifications"] = {
+                "status": "healthy",
+                "active_channel_count": len(channels),
+                "active_rule_count": len(rules),
+            }
+        except Exception as exc:
+            components["notifications"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["notifications"] = {"status": "unavailable"}
+
+    # 16. Uptime
     startup_time = getattr(request.app.state, "startup_time", None)
     if startup_time is not None:
         uptime = (datetime.now(timezone.utc) - startup_time).total_seconds()

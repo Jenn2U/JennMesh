@@ -161,6 +161,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             logger.exception("Webhook manager init failed — webhook features unavailable")
 
+    # Best-effort notification dispatcher init (after webhook_manager so it can delegate)
+    if (
+        not hasattr(app.state, "notification_dispatcher")
+        and getattr(app.state, "db", None) is not None
+    ):
+        try:
+            from jenn_mesh.core.notification_dispatcher import NotificationDispatcher
+
+            wh_mgr = getattr(app.state, "webhook_manager", None)
+            app.state.notification_dispatcher = NotificationDispatcher(
+                db=app.state.db, webhook_manager=wh_mgr
+            )
+        except Exception:
+            logger.exception("Notification dispatcher init failed — notification features unavailable")
+
     if not hasattr(app.state, "startup_time"):
         app.state.startup_time = datetime.now(timezone.utc)
 

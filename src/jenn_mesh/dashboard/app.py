@@ -231,6 +231,15 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
             app.state.webhook_manager = WebhookManager(db=db)
         except Exception:
             pass  # graceful degradation — webhooks unavailable
+        try:
+            from jenn_mesh.core.notification_dispatcher import NotificationDispatcher
+
+            wh_mgr = getattr(app.state, "webhook_manager", None)
+            app.state.notification_dispatcher = NotificationDispatcher(
+                db=db, webhook_manager=wh_mgr
+            )
+        except Exception:
+            pass  # graceful degradation — notifications unavailable
         app.state.startup_time = datetime.now(timezone.utc)
 
     # --- Error handlers ---
@@ -283,6 +292,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.encryption import router as encryption_router
     from jenn_mesh.dashboard.routes.env_telemetry import router as env_telemetry_router
     from jenn_mesh.dashboard.routes.webhooks import router as webhooks_router
+    from jenn_mesh.dashboard.routes.notifications import router as notifications_router
 
     app.include_router(health_router, tags=["health"])
     # Heartbeat router before fleet router — /fleet/mesh-status must match
@@ -316,6 +326,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(env_telemetry_router, prefix="/api/v1", tags=["environment"])
     app.include_router(encryption_router, prefix="/api/v1", tags=["monitoring"])
     app.include_router(webhooks_router, prefix="/api/v1", tags=["webhooks"])
+    app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"])
 
     # Dashboard HTML pages
     @app.get("/")
