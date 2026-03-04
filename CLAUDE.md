@@ -4,10 +4,10 @@
 
 JennMesh is the centralized Meshtastic LoRa radio fleet management service for the JENN Intelligent Ecosystem. It handles initial radio provisioning, firmware tracking, channel/security configuration, MQTT relay setup, fleet health monitoring, and lost node location.
 
-**Version**: 0.2.0
+**Version**: 0.3.0
 **Language**: Python 3.11+
 **Type**: Standalone mesh management service with web dashboard + agent daemon + CLI tools
-**Tests**: 800 (pytest) — target 80%+
+**Tests**: 852 (pytest) — target 80%+
 
 ## Architecture
 

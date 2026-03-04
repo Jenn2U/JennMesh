@@ -2,8 +2,8 @@
 
 *Part of the JENN Intelligent Ecosystem — Centralized Meshtastic LoRa radio fleet management.*
 
-**Last Updated**: 2026-03-02 (v0.2.0 released)
-**Current Version**: 0.2.0
+**Last Updated**: 2026-03-03 (v0.3.0 released)
+**Current Version**: 0.3.0
 
 ---
 
@@ -24,8 +24,8 @@
 |---------|--------|-------|--------|
 | **v0.1.0** | Sprint 1-2 | Foundation — scaffold, models, provisioning, agent, MQTT, basic dashboard | ✅ Released |
 | **v0.2.0** | Sprint 3-4 | Intelligence — topology, baselines, health scoring, workbench, physical deploy | ✅ Released |
-| **v0.3.0** | Sprint 5-6 | Hardening & Resilience — production hardening (P0), mesh recovery, emergency broadcast, heartbeat | **Next Up** |
-| **v0.4.0** | Sprint 7-8 | Intelligence & Analytics — Ollama, geofencing, mesh watchdog, coverage mapping | Planned |
+| **v0.3.0** | Sprint 5-6 | Hardening & Resilience — production hardening (P0), mesh recovery, emergency broadcast, heartbeat | ✅ Released |
+| **v0.4.0** | Sprint 7-8 | Intelligence & Analytics — Ollama, geofencing, mesh watchdog, coverage mapping | **Next Up** |
 | **v0.5.0** | Sprint 9-10 | Automation — failover, TAK integration, OTA rollback, mesh relay sync | Planned |
 | **v1.0.0** | Sprint 11-12 | Integration & GA — iJENN2u, team comms, webhooks, API versioning | Planned |
 | **v1.1.0+** | Ongoing | Advanced — ML predictions, multi-mesh bridging, satellite integration | Backlog |
