@@ -1,11 +1,18 @@
 # Security Alert → Azure DevOps Work Item
 #
-# Automatically creates Bug work items in Azure DevOps when GitHub security
-# tools (Dependabot, CodeQL, Secret Scanning) detect issues. This ensures
-# all security findings are tracked as actionable work items.
+# Polls GitHub security APIs (Dependabot, CodeQL, Secret Scanning) on a
+# schedule and creates Bug work items in Azure DevOps for new findings.
+#
+# NOTE: The webhook-based triggers (dependabot_alert, code_scanning_alert,
+# secret_scanning_alert) require GitHub Advanced Security (GHAS) to be
+# enabled on private repos. Since Jenn2U uses the free tier, we poll
+# instead. The tag-based dedup (gh-alert-{type}-{number}) prevents
+# duplicate work items across runs.
 #
 # Required secrets:
 #   AZURE_DEVOPS_PAT — Personal Access Token with Work Items (Read & Write) scope
+#   GH_SECURITY_PAT — Fine-grained PAT (Jenn2U org) with Dependabot alerts +
+#                      Secret scanning alerts (Read-only) permissions
 #
 # The ADO project name is derived from the GitHub repository name, which
 # matches 1:1 across the JENN ecosystem (Jenn, JennEdge, JennDock, iJENN2u,
@@ -14,155 +21,197 @@
 name: Security Alert → ADO Work Item
 
 on:
-  dependabot_alert:
-    types: [created, reopened, reintroduced]
-  code_scanning_alert:
-    types: [created, reopened, appeared_in_branch]
-  secret_scanning_alert:
-    types: [created, reopened]
+  schedule:
+    - cron: '15 */6 * * *'  # Every 6 hours at :15
+  workflow_dispatch:
 
 permissions:
   security-events: read
   contents: read
+  # NOTE: Dependabot and Secret Scanning alerts require a fine-grained PAT
+  # (GH_SECURITY_PAT) — the default GITHUB_TOKEN cannot access them on
+  # private repos. CodeQL alerts work with the default token.
 
 jobs:
-  create-ado-work-item:
+  sync-alerts:
     runs-on: ubuntu-latest
     steps:
-      - name: Create ADO Bug work item for security alert
+      - name: Sync security alerts to ADO work items
         uses: actions/github-script@v7
         env:
           ADO_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
           ADO_ORG: magnivation
+          GH_SEC_PAT: ${{ secrets.GH_SECURITY_PAT }}
         with:
           script: |
-            const event = context.eventName;
-            const payload = context.payload;
             const repo = context.repo.repo;
+            const owner = context.repo.owner;
             const adoPat = process.env.ADO_PAT;
             const adoOrg = process.env.ADO_ORG;
+            const adoProject = repo;
+
+            // Create a PAT-authenticated Octokit for Dependabot & Secret Scanning
+            // (the default GITHUB_TOKEN cannot access these on private repos)
+            const ghSecPat = process.env.GH_SEC_PAT;
+            let secGithub = github; // fallback to default token
+            if (ghSecPat) {
+              secGithub = new github.constructor({ auth: ghSecPat });
+              core.info('Using GH_SECURITY_PAT for Dependabot & Secret Scanning APIs');
+            } else {
+              core.warning('GH_SECURITY_PAT not set — Dependabot & Secret Scanning may fail on private repos');
+            }
 
             if (!adoPat) {
-              core.setFailed('AZURE_DEVOPS_PAT secret is not set. Add a PAT with Work Items (Read & Write) scope.');
+              core.setFailed('AZURE_DEVOPS_PAT secret is not set.');
               return;
             }
 
-            // --- Extract alert details based on event type ---
-            let alertType, title, description, severity, alertNumber, alertUrl, packageName;
+            const adoAuth = Buffer.from(`:${adoPat}`).toString('base64');
 
-            if (event === 'dependabot_alert') {
-              const alert = payload.alert;
-              alertType = 'Dependency Vulnerability';
-              alertNumber = alert.number;
-              severity = alert.security_advisory?.severity || 'medium';
-              packageName = alert.security_vulnerability?.package?.name || 'unknown';
-              title = `[Security] Dependency: ${packageName} — ${(alert.security_advisory?.summary || '').substring(0, 80)}`;
-              alertUrl = alert.html_url || '';
-              description = [
-                `<h3>Dependency Vulnerability in ${repo}</h3>`,
-                `<p><b>Package:</b> ${packageName}</p>`,
-                `<p><b>Severity:</b> ${severity}</p>`,
-                `<p><b>Advisory:</b> ${alert.security_advisory?.summary || 'N/A'}</p>`,
-                `<p><b>Vulnerable range:</b> ${alert.security_vulnerability?.vulnerable_version_range || 'N/A'}</p>`,
-                `<p><b>Patched version:</b> ${alert.security_vulnerability?.first_patched_version?.identifier || 'No patch available'}</p>`,
-                `<p><b>GitHub Alert:</b> <a href="${alertUrl}">#${alertNumber}</a></p>`,
-                `<p><b>Source:</b> GitHub Dependabot</p>`,
-                `<hr/><p><i>Auto-created by JENN Ecosystem security workflow</i></p>`,
-              ].join('\n');
-
-            } else if (event === 'code_scanning_alert') {
-              const alert = payload.alert;
-              alertType = 'Code Scanning';
-              alertNumber = alert.number;
-              const ruleSeverity = alert.rule?.severity || 'warning';
-              // Map CodeQL severity to standard levels
-              const severityMap = { error: 'high', warning: 'medium', note: 'low' };
-              severity = severityMap[ruleSeverity] || 'medium';
-              title = `[Security] CodeQL: ${(alert.rule?.description || alert.rule?.id || '').substring(0, 80)}`;
-              alertUrl = alert.html_url || '';
-              const instance = alert.most_recent_instance;
-              description = [
-                `<h3>Code Scanning Alert in ${repo}</h3>`,
-                `<p><b>Rule:</b> ${alert.rule?.id || 'N/A'} — ${alert.rule?.description || 'N/A'}</p>`,
-                `<p><b>Severity:</b> ${severity} (CodeQL: ${ruleSeverity})</p>`,
-                `<p><b>File:</b> ${instance?.location?.path || 'N/A'}:${instance?.location?.start_line || ''}</p>`,
-                `<p><b>Message:</b> ${instance?.message?.text || 'N/A'}</p>`,
-                `<p><b>GitHub Alert:</b> <a href="${alertUrl}">#${alertNumber}</a></p>`,
-                `<p><b>Source:</b> GitHub CodeQL</p>`,
-                `<hr/><p><i>Auto-created by JENN Ecosystem security workflow</i></p>`,
-              ].join('\n');
-
-            } else if (event === 'secret_scanning_alert') {
-              const alert = payload.alert;
-              alertType = 'Secret Detected';
-              alertNumber = alert.number;
-              severity = 'critical';  // Exposed secrets are always critical
-              title = `[Security] Secret: ${(alert.secret_type_display_name || alert.secret_type || '').substring(0, 80)} detected`;
-              alertUrl = alert.html_url || '';
-              description = [
-                `<h3>Secret Detected in ${repo}</h3>`,
-                `<p><b>Secret type:</b> ${alert.secret_type_display_name || alert.secret_type || 'N/A'}</p>`,
-                `<p><b>Severity:</b> CRITICAL — rotate this secret immediately</p>`,
-                `<p><b>GitHub Alert:</b> <a href="${alertUrl}">#${alertNumber}</a></p>`,
-                `<p><b>Source:</b> GitHub Secret Scanning</p>`,
-                `<p><b>Action required:</b> Rotate the exposed secret and update all systems using it.</p>`,
-                `<hr/><p><i>Auto-created by JENN Ecosystem security workflow</i></p>`,
-              ].join('\n');
-
-            } else {
-              core.info(`Unhandled event type: ${event}`);
-              return;
+            // --- Helper: check if ADO work item already exists for this alert ---
+            async function adoWorkItemExists(tag) {
+              const wiql = `SELECT [System.Id] FROM WorkItems WHERE [System.Tags] CONTAINS '${tag}' AND [System.TeamProject] = '${adoProject}'`;
+              const url = `https://dev.azure.com/${adoOrg}/${encodeURIComponent(adoProject)}/_apis/wit/wiql?api-version=7.1`;
+              const resp = await fetch(url, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Basic ${adoAuth}`,
+                },
+                body: JSON.stringify({ query: wiql }),
+              });
+              if (!resp.ok) return false;
+              const data = await resp.json();
+              return data.workItems && data.workItems.length > 0;
             }
 
-            // --- Map severity to ADO priority (1=highest, 4=lowest) ---
-            const priorityMap = { critical: 1, high: 2, medium: 3, low: 4 };
-            const priority = priorityMap[severity] || 3;
-
-            // --- Create ADO work item via REST API ---
-            const adoProject = repo;  // GitHub repo name matches ADO project name
-            const adoUrl = `https://dev.azure.com/${adoOrg}/${encodeURIComponent(adoProject)}/_apis/wit/workitems/$Bug?api-version=7.1`;
-            const tags = `security;github-security-alert;${alertType.toLowerCase().replace(/\s+/g, '-')};gh-alert-${alertNumber}`;
-
-            const body = [
-              { op: 'add', path: '/fields/System.Title', value: title },
-              { op: 'add', path: '/fields/System.Description', value: description },
-              { op: 'add', path: '/fields/Microsoft.VSTS.Common.Priority', value: priority },
-              { op: 'add', path: '/fields/System.Tags', value: tags },
-            ];
-
-            const auth = Buffer.from(`:${adoPat}`).toString('base64');
-            const response = await fetch(adoUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json-patch+json',
-                'Authorization': `Basic ${auth}`,
-              },
-              body: JSON.stringify(body),
-            });
-
-            if (!response.ok) {
-              const errorText = await response.text();
-              core.setFailed(`ADO API error (${response.status}): ${errorText}`);
-              return;
+            // --- Helper: create ADO Bug work item ---
+            async function createAdoBug(title, description, severity, tags) {
+              const priorityMap = { critical: 1, high: 2, medium: 3, low: 4 };
+              const priority = priorityMap[severity] || 3;
+              const url = `https://dev.azure.com/${adoOrg}/${encodeURIComponent(adoProject)}/_apis/wit/workitems/$Issue?api-version=7.1`;
+              const body = [
+                { op: 'add', path: '/fields/System.Title', value: title },
+                { op: 'add', path: '/fields/System.Description', value: description },
+                { op: 'add', path: '/fields/Microsoft.VSTS.Common.Priority', value: priority },
+                { op: 'add', path: '/fields/System.Tags', value: tags },
+              ];
+              const resp = await fetch(url, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json-patch+json',
+                  'Authorization': `Basic ${adoAuth}`,
+                },
+                body: JSON.stringify(body),
+              });
+              if (!resp.ok) {
+                const err = await resp.text();
+                core.warning(`ADO API error (${resp.status}): ${err}`);
+                return null;
+              }
+              return await resp.json();
             }
 
-            const workItem = await response.json();
-            const wiId = workItem.id;
-            const wiUrl = workItem._links?.html?.href || `https://dev.azure.com/${adoOrg}/${adoProject}/_workitems/edit/${wiId}`;
+            let created = 0;
+            let skipped = 0;
 
-            core.info(`Created ADO Bug #${wiId}: ${title}`);
-            core.info(`Work item URL: ${wiUrl}`);
-            core.info(`Severity: ${severity} → Priority: ${priority}`);
+            // --- 1. Dependabot alerts ---
+            try {
+              const depAlerts = await secGithub.rest.dependabot.listAlertsForRepo({
+                owner, repo, state: 'open', per_page: 100,
+              });
+              for (const alert of depAlerts.data) {
+                const tag = `gh-alert-dep-${alert.number}`;
+                if (await adoWorkItemExists(tag)) { skipped++; continue; }
 
-            // --- Post summary to GitHub Actions ---
+                const pkg = alert.security_vulnerability?.package?.name || 'unknown';
+                const sev = alert.security_advisory?.severity || 'medium';
+                const title = `[Security] Dependency: ${pkg} — ${(alert.security_advisory?.summary || '').substring(0, 80)}`;
+                const desc = [
+                  `<h3>Dependency Vulnerability in ${repo}</h3>`,
+                  `<p><b>Package:</b> ${pkg}</p>`,
+                  `<p><b>Severity:</b> ${sev}</p>`,
+                  `<p><b>Advisory:</b> ${alert.security_advisory?.summary || 'N/A'}</p>`,
+                  `<p><b>Vulnerable range:</b> ${alert.security_vulnerability?.vulnerable_version_range || 'N/A'}</p>`,
+                  `<p><b>Patched version:</b> ${alert.security_vulnerability?.first_patched_version?.identifier || 'No patch available'}</p>`,
+                  `<p><b>GitHub Alert:</b> <a href="${alert.html_url}">#${alert.number}</a></p>`,
+                  `<p><b>Source:</b> GitHub Dependabot</p>`,
+                  `<hr/><p><i>Auto-created by JENN Ecosystem security workflow</i></p>`,
+                ].join('\n');
+                const tags = `security;github-security-alert;dependency-vulnerability;${tag}`;
+                const wi = await createAdoBug(title, desc, sev, tags);
+                if (wi) { core.info(`Created ADO Issue #${wi.id}: ${title}`); created++; }
+              }
+            } catch (e) {
+              core.warning(`Dependabot alerts: ${e.message}`);
+            }
+
+            // --- 2. Code scanning alerts ---
+            try {
+              const csAlerts = await github.rest.codeScanning.listAlertsForRepo({
+                owner, repo, state: 'open', per_page: 100,
+              });
+              for (const alert of csAlerts.data) {
+                const tag = `gh-alert-cs-${alert.number}`;
+                if (await adoWorkItemExists(tag)) { skipped++; continue; }
+
+                const ruleSev = alert.rule?.severity || 'warning';
+                const sevMap = { error: 'high', warning: 'medium', note: 'low' };
+                const sev = sevMap[ruleSev] || 'medium';
+                const title = `[Security] CodeQL: ${(alert.rule?.description || alert.rule?.id || '').substring(0, 80)}`;
+                const instance = alert.most_recent_instance;
+                const desc = [
+                  `<h3>Code Scanning Alert in ${repo}</h3>`,
+                  `<p><b>Rule:</b> ${alert.rule?.id || 'N/A'} — ${alert.rule?.description || 'N/A'}</p>`,
+                  `<p><b>Severity:</b> ${sev} (CodeQL: ${ruleSev})</p>`,
+                  `<p><b>File:</b> ${instance?.location?.path || 'N/A'}:${instance?.location?.start_line || ''}</p>`,
+                  `<p><b>Message:</b> ${instance?.message?.text || 'N/A'}</p>`,
+                  `<p><b>GitHub Alert:</b> <a href="${alert.html_url}">#${alert.number}</a></p>`,
+                  `<p><b>Source:</b> GitHub CodeQL</p>`,
+                  `<hr/><p><i>Auto-created by JENN Ecosystem security workflow</i></p>`,
+                ].join('\n');
+                const tags = `security;github-security-alert;code-scanning;${tag}`;
+                const wi = await createAdoBug(title, desc, sev, tags);
+                if (wi) { core.info(`Created ADO Issue #${wi.id}: ${title}`); created++; }
+              }
+            } catch (e) {
+              core.warning(`Code scanning alerts: ${e.message}`);
+            }
+
+            // --- 3. Secret scanning alerts ---
+            try {
+              const ssAlerts = await secGithub.rest.secretScanning.listAlertsForRepo({
+                owner, repo, state: 'open', per_page: 100,
+              });
+              for (const alert of ssAlerts.data) {
+                const tag = `gh-alert-ss-${alert.number}`;
+                if (await adoWorkItemExists(tag)) { skipped++; continue; }
+
+                const title = `[Security] Secret: ${(alert.secret_type_display_name || alert.secret_type || '').substring(0, 80)} detected`;
+                const desc = [
+                  `<h3>Secret Detected in ${repo}</h3>`,
+                  `<p><b>Secret type:</b> ${alert.secret_type_display_name || alert.secret_type || 'N/A'}</p>`,
+                  `<p><b>Severity:</b> CRITICAL — rotate this secret immediately</p>`,
+                  `<p><b>GitHub Alert:</b> <a href="${alert.html_url}">#${alert.number}</a></p>`,
+                  `<p><b>Source:</b> GitHub Secret Scanning</p>`,
+                  `<p><b>Action required:</b> Rotate the exposed secret and update all systems using it.</p>`,
+                  `<hr/><p><i>Auto-created by JENN Ecosystem security workflow</i></p>`,
+                ].join('\n');
+                const tags = `security;github-security-alert;secret-detected;${tag}`;
+                const wi = await createAdoBug(title, desc, 'critical', tags);
+                if (wi) { core.info(`Created ADO Issue #${wi.id}: ${title}`); created++; }
+              }
+            } catch (e) {
+              core.warning(`Secret scanning alerts: ${e.message}`);
+            }
+
+            // --- Summary ---
+            core.info(`Done: ${created} work items created, ${skipped} already tracked`);
             await core.summary
-              .addHeading('Security Alert → ADO Work Item')
+              .addHeading('Security Alert → ADO Sync')
               .addTable([
-                [{data: 'Field', header: true}, {data: 'Value', header: true}],
-                ['Alert Type', alertType],
-                ['Severity', severity],
-                ['ADO Work Item', `<a href="${wiUrl}">#${wiId}</a>`],
-                ['ADO Project', adoProject],
-                ['Priority', `P${priority - 1}`],
+                [{data: 'Metric', header: true}, {data: 'Count', header: true}],
+                ['New work items created', String(created)],
+                ['Already tracked (skipped)', String(skipped)],
               ])
               .write();
