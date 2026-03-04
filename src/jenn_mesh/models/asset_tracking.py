@@ -41,9 +41,7 @@ class Asset(BaseModel):
     team: Optional[str] = Field(default=None, description="Assigned team")
     project: Optional[str] = Field(default=None, description="Assigned project")
     status: AssetStatus = Field(default=AssetStatus.ACTIVE)
-    metadata_json: Optional[str] = Field(
-        default=None, description="Extra metadata as JSON string"
-    )
+    metadata_json: Optional[str] = Field(default=None, description="Extra metadata as JSON string")
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -56,12 +54,8 @@ class AssetPosition(BaseModel):
     latitude: float
     longitude: float
     altitude: Optional[float] = None
-    speed_mps: Optional[float] = Field(
-        default=None, description="Speed in meters/second"
-    )
-    heading_deg: Optional[float] = Field(
-        default=None, description="Heading in degrees (0-360)"
-    )
+    speed_mps: Optional[float] = Field(default=None, description="Speed in meters/second")
+    heading_deg: Optional[float] = Field(default=None, description="Heading in degrees (0-360)")
     timestamp: Optional[datetime] = None
 
 

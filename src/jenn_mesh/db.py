@@ -2291,9 +2291,7 @@ class MeshDatabase:
     def get_webhook(self, webhook_id: int) -> Optional[dict]:
         """Get a single webhook by ID."""
         with self.connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM webhooks WHERE id = ?", (webhook_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM webhooks WHERE id = ?", (webhook_id,)).fetchone()
             return dict(row) if row else None
 
     def list_webhooks(self, active_only: bool = False) -> list[dict]:
@@ -2304,9 +2302,7 @@ class MeshDatabase:
                     "SELECT * FROM webhooks WHERE is_active = 1 ORDER BY created_at DESC"
                 ).fetchall()
             else:
-                rows = conn.execute(
-                    "SELECT * FROM webhooks ORDER BY created_at DESC"
-                ).fetchall()
+                rows = conn.execute("SELECT * FROM webhooks ORDER BY created_at DESC").fetchall()
             return [dict(r) for r in rows]
 
     def update_webhook(self, webhook_id: int, **kwargs: object) -> bool:
@@ -2319,9 +2315,7 @@ class MeshDatabase:
         set_clause = ", ".join(f"{k} = ?" for k in updates)
         values = list(updates.values()) + [webhook_id]
         with self.connection() as conn:
-            cursor = conn.execute(
-                f"UPDATE webhooks SET {set_clause} WHERE id = ?", values
-            )
+            cursor = conn.execute(f"UPDATE webhooks SET {set_clause} WHERE id = ?", values)
             return cursor.rowcount > 0
 
     def delete_webhook(self, webhook_id: int) -> bool:
@@ -2411,9 +2405,7 @@ class MeshDatabase:
             )
             return cursor.rowcount > 0
 
-    def list_webhook_deliveries(
-        self, webhook_id: int, limit: int = 50
-    ) -> list[dict]:
+    def list_webhook_deliveries(self, webhook_id: int, limit: int = 50) -> list[dict]:
         """List deliveries for a specific webhook."""
         with self.connection() as conn:
             rows = conn.execute(
@@ -2467,9 +2459,7 @@ class MeshDatabase:
                     "SELECT * FROM notification_channels WHERE is_active = 1 ORDER BY name"
                 ).fetchall()
             else:
-                rows = conn.execute(
-                    "SELECT * FROM notification_channels ORDER BY name"
-                ).fetchall()
+                rows = conn.execute("SELECT * FROM notification_channels ORDER BY name").fetchall()
             return [dict(r) for r in rows]
 
     def update_notification_channel(self, channel_id: int, **kwargs: object) -> bool:
@@ -2490,9 +2480,7 @@ class MeshDatabase:
     def delete_notification_channel(self, channel_id: int) -> bool:
         """Delete a notification channel. Returns True if deleted."""
         with self.connection() as conn:
-            cursor = conn.execute(
-                "DELETE FROM notification_channels WHERE id = ?", (channel_id,)
-            )
+            cursor = conn.execute("DELETE FROM notification_channels WHERE id = ?", (channel_id,))
             return cursor.rowcount > 0
 
     # ── Notification Rule CRUD ────────────────────────────────────────
@@ -2530,9 +2518,7 @@ class MeshDatabase:
                     "SELECT * FROM notification_rules WHERE is_active = 1 ORDER BY name"
                 ).fetchall()
             else:
-                rows = conn.execute(
-                    "SELECT * FROM notification_rules ORDER BY name"
-                ).fetchall()
+                rows = conn.execute("SELECT * FROM notification_rules ORDER BY name").fetchall()
             return [dict(r) for r in rows]
 
     def update_notification_rule(self, rule_id: int, **kwargs: object) -> bool:
@@ -2553,14 +2539,10 @@ class MeshDatabase:
     def delete_notification_rule(self, rule_id: int) -> bool:
         """Delete a notification rule. Returns True if deleted."""
         with self.connection() as conn:
-            cursor = conn.execute(
-                "DELETE FROM notification_rules WHERE id = ?", (rule_id,)
-            )
+            cursor = conn.execute("DELETE FROM notification_rules WHERE id = ?", (rule_id,))
             return cursor.rowcount > 0
 
-    def get_channels_for_alert(
-        self, alert_type: str, severity: str
-    ) -> list[dict]:
+    def get_channels_for_alert(self, alert_type: str, severity: str) -> list[dict]:
         """Find notification channels matching an alert type + severity.
 
         Scans active rules for matching alert_type and severity, collects
@@ -2603,9 +2585,15 @@ class MeshDatabase:
                     previous_component_count, relay_recommendation,
                     topology_before, topology_after)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (event_type, component_count, components_json,
-                 previous_component_count, relay_recommendation,
-                 topology_before, topology_after),
+                (
+                    event_type,
+                    component_count,
+                    components_json,
+                    previous_component_count,
+                    relay_recommendation,
+                    topology_before,
+                    topology_after,
+                ),
             )
             return cursor.lastrowid  # type: ignore[return-value]
 
@@ -2648,11 +2636,9 @@ class MeshDatabase:
     def get_latest_partition_event(self) -> Optional[dict]:
         """Get the most recent unresolved partition event, if any."""
         with self.connection() as conn:
-            row = conn.execute(
-                """SELECT * FROM partition_events
+            row = conn.execute("""SELECT * FROM partition_events
                    WHERE resolved_at IS NULL
-                   ORDER BY created_at DESC LIMIT 1"""
-            ).fetchone()
+                   ORDER BY created_at DESC LIMIT 1""").fetchone()
             return dict(row) if row else None
 
     # ── Bulk Operation CRUD ───────────────────────────────────────────
@@ -2674,22 +2660,25 @@ class MeshDatabase:
                    (operation_type, target_filter, target_node_ids, parameters,
                     total_targets, operator, status)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (operation_type, target_filter, target_node_ids, parameters,
-                 total_targets, operator, status),
+                (
+                    operation_type,
+                    target_filter,
+                    target_node_ids,
+                    parameters,
+                    total_targets,
+                    operator,
+                    status,
+                ),
             )
             return cursor.lastrowid  # type: ignore[return-value]
 
     def get_bulk_operation(self, op_id: int) -> Optional[dict]:
         """Get a single bulk operation by ID."""
         with self.connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM bulk_operations WHERE id = ?", (op_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM bulk_operations WHERE id = ?", (op_id,)).fetchone()
             return dict(row) if row else None
 
-    def list_bulk_operations(
-        self, limit: int = 50, status: Optional[str] = None
-    ) -> list[dict]:
+    def list_bulk_operations(self, limit: int = 50, status: Optional[str] = None) -> list[dict]:
         """List bulk operations, most recent first. Optionally filter by status."""
         with self.connection() as conn:
             if status:
@@ -2788,9 +2777,7 @@ class MeshDatabase:
     def get_team_message(self, msg_id: int) -> Optional[dict]:
         """Get a single team message by ID."""
         with self.connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM team_messages WHERE id = ?", (msg_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM team_messages WHERE id = ?", (msg_id,)).fetchone()
             return dict(row) if row else None
 
     def list_team_messages(
@@ -2805,9 +2792,7 @@ class MeshDatabase:
             clauses.append("channel = ?")
             params.append(channel)
         if hours:
-            clauses.append(
-                "created_at >= datetime('now', ?)"
-            )
+            clauses.append("created_at >= datetime('now', ?)")
             params.append(f"-{hours} hours")
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with self.connection() as conn:
@@ -2817,9 +2802,7 @@ class MeshDatabase:
             ).fetchall()
             return [dict(r) for r in rows]
 
-    def update_team_message_status(
-        self, msg_id: int, status: str, **kwargs: object
-    ) -> bool:
+    def update_team_message_status(self, msg_id: int, status: str, **kwargs: object) -> bool:
         """Update team message status and optional timestamp fields."""
         sets = ["status = ?"]
         params: list[object] = [status]
@@ -2848,9 +2831,7 @@ class MeshDatabase:
     ) -> int:
         """Create or update TAK server configuration. Returns config ID."""
         with self.connection() as conn:
-            existing = conn.execute(
-                "SELECT id FROM tak_config LIMIT 1"
-            ).fetchone()
+            existing = conn.execute("SELECT id FROM tak_config LIMIT 1").fetchone()
             if existing:
                 conn.execute(
                     """UPDATE tak_config
@@ -2858,8 +2839,15 @@ class MeshDatabase:
                            stale_timeout_seconds = ?, enabled = ?,
                            updated_at = datetime('now')
                        WHERE id = ?""",
-                    (host, port, int(use_tls), callsign_prefix,
-                     stale_timeout_seconds, int(enabled), existing["id"]),
+                    (
+                        host,
+                        port,
+                        int(use_tls),
+                        callsign_prefix,
+                        stale_timeout_seconds,
+                        int(enabled),
+                        existing["id"],
+                    ),
                 )
                 return existing["id"]
             cursor = conn.execute(
@@ -2867,17 +2855,14 @@ class MeshDatabase:
                    (host, port, use_tls, callsign_prefix,
                     stale_timeout_seconds, enabled)
                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (host, port, int(use_tls), callsign_prefix,
-                 stale_timeout_seconds, int(enabled)),
+                (host, port, int(use_tls), callsign_prefix, stale_timeout_seconds, int(enabled)),
             )
             return cursor.lastrowid  # type: ignore[return-value]
 
     def get_tak_config(self) -> Optional[dict]:
         """Get current TAK server configuration."""
         with self.connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM tak_config ORDER BY id DESC LIMIT 1"
-            ).fetchone()
+            row = conn.execute("SELECT * FROM tak_config ORDER BY id DESC LIMIT 1").fetchone()
             return dict(row) if row else None
 
     def log_tak_event(
@@ -2899,8 +2884,17 @@ class MeshDatabase:
                    (uid, cot_type, callsign, node_id, direction,
                     latitude, longitude, altitude, raw_xml)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (uid, cot_type, callsign, node_id, direction,
-                 latitude, longitude, altitude, raw_xml),
+                (
+                    uid,
+                    cot_type,
+                    callsign,
+                    node_id,
+                    direction,
+                    latitude,
+                    longitude,
+                    altitude,
+                    raw_xml,
+                ),
             )
             return cursor.lastrowid  # type: ignore[return-value]
 
@@ -2929,10 +2923,8 @@ class MeshDatabase:
     def get_tak_event_counts(self) -> dict:
         """Get event counts by direction."""
         with self.connection() as conn:
-            rows = conn.execute(
-                """SELECT direction, COUNT(*) as count
-                   FROM tak_events GROUP BY direction"""
-            ).fetchall()
+            rows = conn.execute("""SELECT direction, COUNT(*) as count
+                   FROM tak_events GROUP BY direction""").fetchall()
             return {r["direction"]: r["count"] for r in rows}
 
     # ── Asset Tracking (v0.7.0) ──────────────────────────────────────────
@@ -2960,17 +2952,13 @@ class MeshDatabase:
     def get_asset(self, asset_id: int) -> Optional[dict]:
         """Get a single asset by ID."""
         with self.connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM assets WHERE id = ?", (asset_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
             return dict(row) if row else None
 
     def get_asset_by_node(self, node_id: str) -> Optional[dict]:
         """Get asset associated with a mesh node."""
         with self.connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM assets WHERE node_id = ?", (node_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM assets WHERE node_id = ?", (node_id,)).fetchone()
             return dict(row) if row else None
 
     def list_assets(
@@ -2996,15 +2984,21 @@ class MeshDatabase:
             params.append(status)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with self.connection() as conn:
-            rows = conn.execute(
-                f"SELECT * FROM assets {where} ORDER BY name", params
-            ).fetchall()
+            rows = conn.execute(f"SELECT * FROM assets {where} ORDER BY name", params).fetchall()
             return [dict(r) for r in rows]
 
     def update_asset(self, asset_id: int, **kwargs: object) -> bool:
         """Update asset fields."""
-        allowed = {"name", "asset_type", "node_id", "zone", "team",
-                    "project", "status", "metadata_json"}
+        allowed = {
+            "name",
+            "asset_type",
+            "node_id",
+            "zone",
+            "team",
+            "project",
+            "status",
+            "metadata_json",
+        }
         sets, params = ["updated_at = datetime('now')"], []
         for k, v in kwargs.items():
             if k in allowed:
@@ -3014,17 +3008,13 @@ class MeshDatabase:
             return False
         params.append(asset_id)
         with self.connection() as conn:
-            cursor = conn.execute(
-                f"UPDATE assets SET {', '.join(sets)} WHERE id = ?", params
-            )
+            cursor = conn.execute(f"UPDATE assets SET {', '.join(sets)} WHERE id = ?", params)
             return cursor.rowcount > 0
 
     def delete_asset(self, asset_id: int) -> bool:
         """Delete an asset."""
         with self.connection() as conn:
-            cursor = conn.execute(
-                "DELETE FROM assets WHERE id = ?", (asset_id,)
-            )
+            cursor = conn.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
             return cursor.rowcount > 0
 
     def get_asset_position_trail(
@@ -3061,14 +3051,11 @@ class MeshDatabase:
                    (edge_device_id, node_id, edge_hostname, edge_ip,
                     association_type, last_verified)
                    VALUES (?, ?, ?, ?, ?, datetime('now'))""",
-                (edge_device_id, node_id, edge_hostname, edge_ip,
-                 association_type),
+                (edge_device_id, node_id, edge_hostname, edge_ip, association_type),
             )
             return cursor.lastrowid  # type: ignore[return-value]
 
-    def get_edge_association_by_edge(
-        self, edge_device_id: str
-    ) -> Optional[dict]:
+    def get_edge_association_by_edge(self, edge_device_id: str) -> Optional[dict]:
         """Get association for a JennEdge device."""
         with self.connection() as conn:
             row = conn.execute(
@@ -3086,9 +3073,7 @@ class MeshDatabase:
             ).fetchone()
             return dict(row) if row else None
 
-    def list_edge_associations(
-        self, status: str | None = None
-    ) -> list[dict]:
+    def list_edge_associations(self, status: str | None = None) -> list[dict]:
         """List all edge-radio associations."""
         if status:
             query = "SELECT * FROM edge_associations WHERE status = ? ORDER BY edge_device_id"
@@ -3100,12 +3085,9 @@ class MeshDatabase:
             rows = conn.execute(query, params).fetchall()
             return [dict(r) for r in rows]
 
-    def update_edge_association(
-        self, edge_device_id: str, **kwargs: object
-    ) -> bool:
+    def update_edge_association(self, edge_device_id: str, **kwargs: object) -> bool:
         """Update edge association fields."""
-        allowed = {"node_id", "edge_hostname", "edge_ip",
-                    "association_type", "status"}
+        allowed = {"node_id", "edge_hostname", "edge_ip", "association_type", "status"}
         sets = ["updated_at = datetime('now')", "last_verified = datetime('now')"]
         params: list[object] = []
         for k, v in kwargs.items():

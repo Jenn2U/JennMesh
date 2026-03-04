@@ -85,8 +85,7 @@ class TeamCommsManager:
         message = message.strip()
         if len(message) > MAX_TEAM_MESSAGE_LENGTH:
             raise ValueError(
-                f"Message exceeds {MAX_TEAM_MESSAGE_LENGTH} characters "
-                f"(got {len(message)})"
+                f"Message exceeds {MAX_TEAM_MESSAGE_LENGTH} characters " f"(got {len(message)})"
             )
 
         # Validate direct messages have a recipient
@@ -132,7 +131,9 @@ class TeamCommsManager:
                 msg.status = MessageStatus.SENDING
                 logger.info(
                     "Team message %d published to MQTT: [%s] %s",
-                    msg_id, msg_channel.value, message[:50],
+                    msg_id,
+                    msg_channel.value,
+                    message[:50],
                 )
             except Exception:
                 logger.exception("Failed to publish team message %d to MQTT", msg_id)
@@ -144,9 +145,7 @@ class TeamCommsManager:
     def mark_sent(self, msg_id: int) -> bool:
         """Mark message as sent by agent (ACK received from radio bridge)."""
         now = datetime.now(timezone.utc).isoformat()
-        return self._db.update_team_message_status(
-            msg_id, MessageStatus.SENT.value, sent_at=now
-        )
+        return self._db.update_team_message_status(msg_id, MessageStatus.SENT.value, sent_at=now)
 
     def mark_delivered(self, msg_id: int) -> bool:
         """Mark message as delivered (mesh echo received)."""
@@ -166,9 +165,7 @@ class TeamCommsManager:
         hours: int | None = None,
     ) -> list[dict]:
         """List messages with optional filters."""
-        return self._db.list_team_messages(
-            channel=channel, limit=limit, hours=hours
-        )
+        return self._db.list_team_messages(channel=channel, limit=limit, hours=hours)
 
     def find_message_for_mesh_text(self, text: str) -> Optional[dict]:
         """Try to match a mesh echo text to a pending/sent team message.
@@ -182,7 +179,7 @@ class TeamCommsManager:
         # Extract message body after the prefix
         try:
             bracket_end = text.index("]")
-            body = text[bracket_end + 1:].strip()
+            body = text[bracket_end + 1 :].strip()
         except ValueError:
             return None
 

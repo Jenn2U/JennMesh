@@ -40,9 +40,7 @@ class TestSignPayload:
         secret = "test-secret"
         body = b'{"event_type": "alert_created"}'
         sig = _sign_payload(secret, body)
-        expected = hmac.new(
-            secret.encode("utf-8"), body, hashlib.sha256
-        ).hexdigest()
+        expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
         assert sig == f"sha256={expected}"
 
     def test_different_secrets_different_sigs(self):

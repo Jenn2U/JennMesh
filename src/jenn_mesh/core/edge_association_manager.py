@@ -82,7 +82,9 @@ class EdgeAssociationManager:
 
         logger.info(
             "Edge association created: %s → %s (%s)",
-            edge_device_id, node_id, association_type,
+            edge_device_id,
+            node_id,
+            association_type,
         )
 
         return EdgeAssociation(
@@ -102,15 +104,11 @@ class EdgeAssociationManager:
         """Get association for a mesh radio node."""
         return self._db.get_edge_association_by_node(node_id)
 
-    def list_associations(
-        self, status: str | None = None
-    ) -> list[dict]:
+    def list_associations(self, status: str | None = None) -> list[dict]:
         """List all edge-radio associations."""
         return self._db.list_edge_associations(status=status)
 
-    def update_association(
-        self, edge_device_id: str, **kwargs: object
-    ) -> bool:
+    def update_association(self, edge_device_id: str, **kwargs: object) -> bool:
         """Update association fields."""
         return self._db.update_edge_association(edge_device_id, **kwargs)
 
@@ -140,9 +138,7 @@ class EdgeAssociationManager:
             radio_longitude=row.get("longitude"),
             radio_last_seen=row.get("last_seen"),
             mesh_status=row.get("mesh_status", "unknown"),
-            association_status=AssociationStatus(
-                row.get("status", "active")
-            ),
+            association_status=AssociationStatus(row.get("status", "active")),
         )
 
     def update_stale_associations(self) -> int:
@@ -162,22 +158,16 @@ class EdgeAssociationManager:
 
             if row is None:
                 # Radio not in device registry — mark stale
-                self._db.update_edge_association(
-                    assoc["edge_device_id"], status="stale"
-                )
+                self._db.update_edge_association(assoc["edge_device_id"], status="stale")
                 stale_count += 1
                 continue
 
             if row["last_seen"]:
                 try:
                     last_seen = datetime.fromisoformat(row["last_seen"])
-                    age_hours = (
-                        datetime.utcnow() - last_seen
-                    ).total_seconds() / 3600
+                    age_hours = (datetime.utcnow() - last_seen).total_seconds() / 3600
                     if age_hours > 1:
-                        self._db.update_edge_association(
-                            assoc["edge_device_id"], status="stale"
-                        )
+                        self._db.update_edge_association(assoc["edge_device_id"], status="stale")
                         stale_count += 1
                 except (ValueError, TypeError):
                     pass

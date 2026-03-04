@@ -151,9 +151,7 @@ class TestUpdateDeleteAPI:
             "/api/v1/edge-associations",
             json={"edge_device_id": "edge-001", "node_id": "!abc"},
         )
-        resp = await client.put(
-            "/api/v1/edge-associations/edge-001", json={}
-        )
+        resp = await client.put("/api/v1/edge-associations/edge-001", json={})
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
@@ -187,9 +185,7 @@ class TestUpdateDeleteAPI:
 class TestCombinedStatusAPI:
     @pytest.mark.asyncio
     async def test_status_not_found(self, client):
-        resp = await client.get(
-            "/api/v1/edge-associations/status/nonexistent"
-        )
+        resp = await client.get("/api/v1/edge-associations/status/nonexistent")
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
@@ -207,9 +203,7 @@ class TestCombinedStatusAPI:
             "/api/v1/edge-associations",
             json={"edge_device_id": "edge-001", "node_id": "!abc123"},
         )
-        resp = await client.get(
-            "/api/v1/edge-associations/status/edge-001"
-        )
+        resp = await client.get("/api/v1/edge-associations/status/edge-001")
         assert resp.status_code == 200
         data = resp.json()
         assert data["radio_online"] is True

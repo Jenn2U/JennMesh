@@ -70,15 +70,11 @@ class TestRegisterAsset:
 
     def test_invalid_type(self, tracker):
         with pytest.raises(ValueError, match="Invalid asset_type"):
-            tracker.register_asset(
-                name="Bad", asset_type="invalid", node_id="!abc"
-            )
+            tracker.register_asset(name="Bad", asset_type="invalid", node_id="!abc")
 
     def test_empty_node_id(self, tracker):
         with pytest.raises(ValueError, match="node_id is required"):
-            tracker.register_asset(
-                name="Bad", asset_type="vehicle", node_id=""
-            )
+            tracker.register_asset(name="Bad", asset_type="vehicle", node_id="")
 
     def test_register_with_metadata(self, tracker):
         asset = tracker.register_asset(
@@ -96,9 +92,7 @@ class TestRegisterAsset:
 
 class TestAssetCRUD:
     def test_get_asset(self, tracker):
-        asset = tracker.register_asset(
-            name="Test", asset_type="equipment", node_id="!abc"
-        )
+        asset = tracker.register_asset(name="Test", asset_type="equipment", node_id="!abc")
         fetched = tracker.get_asset(asset.id)
         assert fetched is not None
         assert fetched["name"] == "Test"
@@ -107,9 +101,7 @@ class TestAssetCRUD:
         assert tracker.get_asset(9999) is None
 
     def test_get_by_node(self, tracker):
-        tracker.register_asset(
-            name="ByNode", asset_type="vehicle", node_id="!target"
-        )
+        tracker.register_asset(name="ByNode", asset_type="vehicle", node_id="!target")
         fetched = tracker.get_asset_by_node("!target")
         assert fetched is not None
         assert fetched["name"] == "ByNode"
@@ -128,17 +120,13 @@ class TestAssetCRUD:
         assert vehicles[0]["name"] == "A"
 
     def test_update_asset(self, tracker):
-        asset = tracker.register_asset(
-            name="Old", asset_type="vehicle", node_id="!abc"
-        )
+        asset = tracker.register_asset(name="Old", asset_type="vehicle", node_id="!abc")
         assert tracker.update_asset(asset.id, name="New")
         fetched = tracker.get_asset(asset.id)
         assert fetched["name"] == "New"
 
     def test_delete_asset(self, tracker):
-        asset = tracker.register_asset(
-            name="Del", asset_type="vehicle", node_id="!abc"
-        )
+        asset = tracker.register_asset(name="Del", asset_type="vehicle", node_id="!abc")
         assert tracker.delete_asset(asset.id)
         assert tracker.get_asset(asset.id) is None
 
@@ -173,12 +161,16 @@ class TestTrail:
         tracker.register_asset(name="T", asset_type="vehicle", node_id="!abc")
         now = datetime.utcnow()
         db.add_position(
-            "!abc", 30.0, -97.0,
+            "!abc",
+            30.0,
+            -97.0,
             source="gps",
             timestamp=(now - timedelta(minutes=10)).isoformat(),
         )
         db.add_position(
-            "!abc", 30.01, -97.01,
+            "!abc",
+            30.01,
+            -97.01,
             source="gps",
             timestamp=now.isoformat(),
         )

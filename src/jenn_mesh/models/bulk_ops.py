@@ -36,15 +36,11 @@ class TargetFilter(BaseModel):
     specified criteria to be included.
     """
 
-    node_ids: Optional[list[str]] = Field(
-        default=None, description="Explicit list of node IDs"
-    )
+    node_ids: Optional[list[str]] = Field(default=None, description="Explicit list of node IDs")
     hardware_model: Optional[str] = Field(
         default=None, description="Filter by hardware model (e.g., 'T-Beam')"
     )
-    firmware_version: Optional[str] = Field(
-        default=None, description="Filter by firmware version"
-    )
+    firmware_version: Optional[str] = Field(default=None, description="Filter by firmware version")
     role: Optional[str] = Field(
         default=None, description="Filter by node role (e.g., 'router', 'client')"
     )
@@ -65,9 +61,7 @@ class BulkOperationRequest(BaseModel):
     config_template_id: Optional[int] = Field(
         default=None, description="Config template ID (for config_push)"
     )
-    parameters: dict = Field(
-        default_factory=dict, description="Operation-specific parameters"
-    )
+    parameters: dict = Field(default_factory=dict, description="Operation-specific parameters")
     dry_run: bool = Field(
         default=True,
         description="Preview only — must be False with confirmed=True to execute",

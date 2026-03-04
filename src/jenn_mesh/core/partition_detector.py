@@ -20,9 +20,7 @@ from jenn_mesh.db import MeshDatabase
 logger = logging.getLogger(__name__)
 
 
-def _compute_component_centroid(
-    db: MeshDatabase, component_node_ids: list[str]
-) -> Optional[str]:
+def _compute_component_centroid(db: MeshDatabase, component_node_ids: list[str]) -> Optional[str]:
     """Compute geographic centroid of a component for relay recommendation.
 
     Returns a human-readable string like "lat=30.267, lon=-97.743" or
@@ -118,9 +116,7 @@ class PartitionDetector:
             self.db.create_partition_event(
                 event_type="partition_detected",
                 component_count=current_count,
-                components_json=json.dumps(
-                    [sorted(c) for c in components], default=str
-                ),
+                components_json=json.dumps([sorted(c) for c in components], default=str),
                 previous_component_count=previous_count,
                 relay_recommendation="; ".join(recommendations) if recommendations else None,
             )
@@ -131,9 +127,7 @@ class PartitionDetector:
             new_alerts = 0
             for comp in sorted_components[1:]:  # skip largest
                 for node_id in comp:
-                    if not self.db.has_active_alert(
-                        node_id, AlertType.NETWORK_PARTITION.value
-                    ):
+                    if not self.db.has_active_alert(node_id, AlertType.NETWORK_PARTITION.value):
                         severity = ALERT_SEVERITY_MAP[AlertType.NETWORK_PARTITION].value
                         msg = (
                             f"Node in partition ({len(comp)} nodes) — "
@@ -156,9 +150,7 @@ class PartitionDetector:
             self.db.create_partition_event(
                 event_type="partition_resolved",
                 component_count=current_count,
-                components_json=json.dumps(
-                    [sorted(c) for c in components], default=str
-                ),
+                components_json=json.dumps([sorted(c) for c in components], default=str),
                 previous_component_count=previous_count,
             )
 
@@ -236,8 +228,7 @@ class PartitionDetector:
 
             if centroid_a and centroid_b:
                 recommendations.append(
-                    f"Place relay between main ({centroid_a}) and "
-                    f"partition #{i} ({centroid_b})"
+                    f"Place relay between main ({centroid_a}) and " f"partition #{i} ({centroid_b})"
                 )
             elif centroid_a:
                 recommendations.append(

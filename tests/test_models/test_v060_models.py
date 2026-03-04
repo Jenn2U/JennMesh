@@ -34,7 +34,6 @@ from jenn_mesh.models.partition import (
 )
 from jenn_mesh.models.webhook import WebhookEventType
 
-
 # ── Encryption Models ────────────────────────────────────────────────
 
 

@@ -90,9 +90,7 @@ async def list_assets(
 ) -> dict:
     """List tracked assets with optional filters."""
     tracker = _get_tracker(request)
-    assets = tracker.list_assets(
-        asset_type=asset_type, zone=zone, team=team, status=status
-    )
+    assets = tracker.list_assets(asset_type=asset_type, zone=zone, team=team, status=status)
     return {"status": "ok", "count": len(assets), "assets": assets}
 
 
@@ -107,9 +105,7 @@ async def get_asset(request: Request, asset_id: int) -> dict:
 
 
 @router.put("/assets/{asset_id}")
-async def update_asset(
-    request: Request, asset_id: int, body: UpdateAssetRequest
-) -> dict:
+async def update_asset(request: Request, asset_id: int, body: UpdateAssetRequest) -> dict:
     """Update asset fields."""
     tracker = _get_tracker(request)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
@@ -137,9 +133,7 @@ async def get_asset_by_node(request: Request, node_id: str) -> dict:
     tracker = _get_tracker(request)
     asset = tracker.get_asset_by_node(node_id)
     if asset is None:
-        raise HTTPException(
-            status_code=404, detail=f"No asset associated with node {node_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"No asset associated with node {node_id}")
     return {"status": "ok", "asset": asset}
 
 
@@ -156,9 +150,7 @@ async def get_asset_trail(
     if asset is None:
         raise HTTPException(status_code=404, detail=f"Asset {asset_id} not found")
 
-    trail = tracker.get_trail(
-        node_id=asset["node_id"], hours=hours, limit=limit
-    )
+    trail = tracker.get_trail(node_id=asset["node_id"], hours=hours, limit=limit)
     return {
         "status": "ok",
         "asset_id": trail.asset_id,

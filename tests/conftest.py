@@ -285,12 +285,14 @@ def populated_db(db: MeshDatabase) -> MeshDatabase:
     ch2_id = db.create_notification_channel(
         name="Admin Email",
         channel_type="email",
-        config_json=json.dumps({
-            "smtp_host": "smtp.example.com",
-            "smtp_port": 587,
-            "from_address": "alerts@jenn2u.ai",
-            "to_addresses": ["admin@jenn2u.ai"],
-        }),
+        config_json=json.dumps(
+            {
+                "smtp_host": "smtp.example.com",
+                "smtp_port": 587,
+                "from_address": "alerts@jenn2u.ai",
+                "to_addresses": ["admin@jenn2u.ai"],
+            }
+        ),
     )
     db.update_notification_channel(ch2_id, is_active=False)
 

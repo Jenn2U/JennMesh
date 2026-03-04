@@ -113,9 +113,7 @@ async def get_channel(request: Request, channel_id: int) -> dict:
 
 
 @router.put("/notifications/channels/{channel_id}")
-async def update_channel(
-    request: Request, channel_id: int, body: UpdateChannelRequest
-) -> dict:
+async def update_channel(request: Request, channel_id: int, body: UpdateChannelRequest) -> dict:
     """Update a notification channel."""
     db = getattr(request.app.state, "db", None)
     if db is None:
@@ -216,9 +214,7 @@ async def create_rule(request: Request, body: CreateRuleRequest) -> dict:
 
 
 @router.put("/notifications/rules/{rule_id}")
-async def update_rule(
-    request: Request, rule_id: int, body: UpdateRuleRequest
-) -> dict:
+async def update_rule(request: Request, rule_id: int, body: UpdateRuleRequest) -> dict:
     """Update a notification rule."""
     db = getattr(request.app.state, "db", None)
     if db is None:

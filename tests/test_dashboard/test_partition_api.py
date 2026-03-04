@@ -64,15 +64,9 @@ class TestPartitionEvents:
 
     @pytest.mark.asyncio
     async def test_list_events_with_type_filter(self, client, db):
-        db.create_partition_event(
-            event_type="partition_detected", component_count=2
-        )
-        db.create_partition_event(
-            event_type="partition_resolved", component_count=1
-        )
-        resp = await client.get(
-            "/api/v1/partitions/events?event_type=partition_detected"
-        )
+        db.create_partition_event(event_type="partition_detected", component_count=2)
+        db.create_partition_event(event_type="partition_resolved", component_count=1)
+        resp = await client.get("/api/v1/partitions/events?event_type=partition_detected")
         assert resp.status_code == 200
         data = resp.json()
         assert data["count"] == 1

@@ -130,9 +130,7 @@ class WebhookManager:
             enqueued += 1
 
         if enqueued:
-            logger.info(
-                "Dispatched event '%s' to %d webhook(s)", event_type, enqueued
-            )
+            logger.info("Dispatched event '%s' to %d webhook(s)", event_type, enqueued)
         return enqueued
 
     # ── Delivery processing ───────────────────────────────────────────
@@ -186,7 +184,8 @@ class WebhookManager:
                     counts["delivered"] += 1
                 else:
                     self._handle_failure(
-                        delivery_id, attempt,
+                        delivery_id,
+                        attempt,
                         http_status=resp.status_code,
                         error=f"HTTP {resp.status_code}",
                     )
@@ -194,7 +193,8 @@ class WebhookManager:
 
             except Exception as exc:
                 self._handle_failure(
-                    delivery_id, attempt,
+                    delivery_id,
+                    attempt,
                     error=str(exc)[:500],
                 )
                 counts["retrying" if attempt + 1 < 5 else "failed"] += 1
@@ -221,7 +221,9 @@ class WebhookManager:
             )
             logger.warning(
                 "Webhook delivery #%d permanently failed after %d attempts: %s",
-                delivery_id, next_attempt, error,
+                delivery_id,
+                next_attempt,
+                error,
             )
         else:
             delay_idx = min(next_attempt - 1, len(RETRY_DELAYS_SECONDS) - 1)
@@ -241,7 +243,9 @@ class WebhookManager:
             )
             logger.debug(
                 "Webhook delivery #%d retry %d in %ds",
-                delivery_id, next_attempt, delay,
+                delivery_id,
+                next_attempt,
+                delay,
             )
 
     # ── Test fire ─────────────────────────────────────────────────────

@@ -187,13 +187,15 @@ class TestNotificationDispatcher:
         assert count == 0
 
     def test_email_channel(self, db, dispatcher):
-        config = json.dumps({
-            "smtp_host": "localhost",
-            "smtp_port": 1025,
-            "from_address": "noreply@jenn2u.ai",
-            "to_addresses": ["admin@jenn2u.ai"],
-            "use_tls": False,
-        })
+        config = json.dumps(
+            {
+                "smtp_host": "localhost",
+                "smtp_port": 1025,
+                "from_address": "noreply@jenn2u.ai",
+                "to_addresses": ["admin@jenn2u.ai"],
+                "use_tls": False,
+            }
+        )
         ch_id = db.create_notification_channel(
             name="Email", channel_type="email", config_json=config
         )

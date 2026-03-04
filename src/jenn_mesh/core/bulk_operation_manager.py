@@ -240,7 +240,10 @@ class BulkOperationManager:
                     results[node_id] = str(exc)
                     logger.warning(
                         "Bulk op %d: %s failed for %s: %s",
-                        op_id, op_type, node_id, exc,
+                        op_id,
+                        op_type,
+                        node_id,
+                        exc,
                     )
 
                 # Update progress
@@ -273,9 +276,7 @@ class BulkOperationManager:
                 completed_at=datetime.now(timezone.utc).isoformat(),
             )
 
-    def _execute_single(
-        self, op_type: str, node_id: str, parameters: dict
-    ) -> dict:
+    def _execute_single(self, op_type: str, node_id: str, parameters: dict) -> dict:
         """Execute a single operation on one device.
 
         Returns dict with 'success': True/False and optional 'error'.

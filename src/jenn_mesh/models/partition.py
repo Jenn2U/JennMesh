@@ -22,9 +22,7 @@ class PartitionEvent(BaseModel):
     id: Optional[int] = Field(default=None, description="Event ID (auto-assigned)")
     event_type: PartitionEventType
     component_count: int = Field(description="Number of connected components after event")
-    components_json: str = Field(
-        default="[]", description="JSON list of component node-id lists"
-    )
+    components_json: str = Field(default="[]", description="JSON list of component node-id lists")
     previous_component_count: int = Field(
         default=1, description="Component count before this event"
     )

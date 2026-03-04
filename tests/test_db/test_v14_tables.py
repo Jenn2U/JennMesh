@@ -20,9 +20,7 @@ def db(tmp_path) -> MeshDatabase:
 
 class TestWebhookCRUD:
     def test_create_and_get(self, db):
-        wh_id = db.create_webhook(
-            name="Test", url="https://example.com/hook", secret="s3cret"
-        )
+        wh_id = db.create_webhook(name="Test", url="https://example.com/hook", secret="s3cret")
         wh = db.get_webhook(wh_id)
         assert wh is not None
         assert wh["name"] == "Test"
@@ -75,14 +73,14 @@ class TestWebhookDeliveryCRUD:
 
     def test_pending_deliveries(self, db):
         wh_id = db.create_webhook(name="H", url="https://h.com")
-        db.create_webhook_delivery(wh_id, "alert_created", '{}')
+        db.create_webhook_delivery(wh_id, "alert_created", "{}")
         pending = db.get_pending_webhook_deliveries()
         assert len(pending) >= 1
         assert pending[0]["status"] == "pending"
 
     def test_update_delivery(self, db):
         wh_id = db.create_webhook(name="H", url="https://h.com")
-        d_id = db.create_webhook_delivery(wh_id, "test", '{}')
+        d_id = db.create_webhook_delivery(wh_id, "test", "{}")
         db.update_webhook_delivery(
             d_id, status="delivered", http_status=200, increment_attempt=True
         )
@@ -93,7 +91,7 @@ class TestWebhookDeliveryCRUD:
 
     def test_prune_old_deliveries(self, db):
         wh_id = db.create_webhook(name="H", url="https://h.com")
-        db.create_webhook_delivery(wh_id, "test", '{}')
+        db.create_webhook_delivery(wh_id, "test", "{}")
         # Pruning 0-day-old records should clean up nothing (just created)
         count = db.prune_old_webhook_deliveries(days=0)
         # The delivery was just created so it's 0 days old — edge case
@@ -105,9 +103,7 @@ class TestWebhookDeliveryCRUD:
 
 class TestNotificationChannelCRUD:
     def test_create_and_get(self, db):
-        ch_id = db.create_notification_channel(
-            name="Ops Slack", channel_type="slack"
-        )
+        ch_id = db.create_notification_channel(name="Ops Slack", channel_type="slack")
         ch = db.get_notification_channel(ch_id)
         assert ch is not None
         assert ch["name"] == "Ops Slack"
@@ -175,9 +171,7 @@ class TestNotificationRuleCRUD:
         assert db.get_notification_rule(r_id) is None
 
     def test_get_channels_for_alert_match(self, db):
-        ch_id = db.create_notification_channel(
-            name="Slack", channel_type="slack"
-        )
+        ch_id = db.create_notification_channel(name="Slack", channel_type="slack")
         db.create_notification_rule(
             name="Critical",
             alert_types=json.dumps(["low_battery"]),
@@ -189,9 +183,7 @@ class TestNotificationRuleCRUD:
         assert channels[0]["name"] == "Slack"
 
     def test_get_channels_for_alert_no_match(self, db):
-        ch_id = db.create_notification_channel(
-            name="Slack", channel_type="slack"
-        )
+        ch_id = db.create_notification_channel(name="Slack", channel_type="slack")
         db.create_notification_rule(
             name="Critical Only",
             alert_types=json.dumps(["low_battery"]),
@@ -306,32 +298,22 @@ class TestBulkOperationCRUD:
         assert len(ops) == 2
 
     def test_list_operations_status_filter(self, db):
-        db.create_bulk_operation(
-            operation_type="reboot", total_targets=1, status="completed"
-        )
-        db.create_bulk_operation(
-            operation_type="psk_rotation", total_targets=2, status="running"
-        )
+        db.create_bulk_operation(operation_type="reboot", total_targets=1, status="completed")
+        db.create_bulk_operation(operation_type="psk_rotation", total_targets=2, status="running")
         running = db.list_bulk_operations(status="running")
         assert len(running) == 1
         assert running[0]["operation_type"] == "psk_rotation"
 
     def test_update_operation(self, db):
-        op_id = db.create_bulk_operation(
-            operation_type="reboot", total_targets=3, status="running"
-        )
-        db.update_bulk_operation(
-            op_id, completed_count=2, failed_count=1, status="failed"
-        )
+        op_id = db.create_bulk_operation(operation_type="reboot", total_targets=3, status="running")
+        db.update_bulk_operation(op_id, completed_count=2, failed_count=1, status="failed")
         op = db.get_bulk_operation(op_id)
         assert op["status"] == "failed"
         assert op["completed_count"] == 2
         assert op["failed_count"] == 1
 
     def test_cancel_operation(self, db):
-        op_id = db.create_bulk_operation(
-            operation_type="reboot", total_targets=1, status="running"
-        )
+        op_id = db.create_bulk_operation(operation_type="reboot", total_targets=1, status="running")
         assert db.cancel_bulk_operation(op_id) is True
         op = db.get_bulk_operation(op_id)
         assert op["status"] == "cancelled"

@@ -14,7 +14,6 @@ from jenn_mesh.core.encryption_auditor import (
 from jenn_mesh.db import MeshDatabase
 from jenn_mesh.models.encryption import EncryptionStatus
 
-
 # ── classify_psk_strength() unit tests ────────────────────────────────
 
 

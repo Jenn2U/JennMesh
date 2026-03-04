@@ -91,9 +91,7 @@ class EncryptionAuditor:
 
         strong = sum(1 for a in audits if a.encryption_status == EncryptionStatus.STRONG)
         weak = sum(1 for a in audits if a.encryption_status == EncryptionStatus.WEAK)
-        unencrypted = sum(
-            1 for a in audits if a.encryption_status == EncryptionStatus.UNENCRYPTED
-        )
+        unencrypted = sum(1 for a in audits if a.encryption_status == EncryptionStatus.UNENCRYPTED)
         unknown = sum(1 for a in audits if a.encryption_status == EncryptionStatus.UNKNOWN)
 
         total = len(audits)

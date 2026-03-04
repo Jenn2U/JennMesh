@@ -23,12 +23,8 @@ class EdgeAssociation(BaseModel):
     id: Optional[int] = Field(default=None, description="Auto-assigned by DB")
     edge_device_id: str = Field(description="JennEdge device identifier")
     node_id: str = Field(description="Mesh radio node_id")
-    edge_hostname: Optional[str] = Field(
-        default=None, description="JennEdge device hostname"
-    )
-    edge_ip: Optional[str] = Field(
-        default=None, description="JennEdge device IP address"
-    )
+    edge_hostname: Optional[str] = Field(default=None, description="JennEdge device hostname")
+    edge_ip: Optional[str] = Field(default=None, description="JennEdge device IP address")
     association_type: str = Field(
         default="co-located",
         description="How they're associated: co-located, usb-connected, bluetooth",

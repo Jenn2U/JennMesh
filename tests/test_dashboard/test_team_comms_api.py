@@ -151,9 +151,7 @@ class TestDeliveryAPI:
             json={"message": "Test", "confirmed": True},
         )
         msg_id = send.json()["message_id"]
-        resp = await client.post(
-            f"/api/v1/team-comms/messages/{msg_id}/mark-sent"
-        )
+        resp = await client.post(f"/api/v1/team-comms/messages/{msg_id}/mark-sent")
         assert resp.status_code == 200
         assert resp.json()["delivery_status"] == "sent"
 
@@ -164,15 +162,11 @@ class TestDeliveryAPI:
             json={"message": "Test", "confirmed": True},
         )
         msg_id = send.json()["message_id"]
-        resp = await client.post(
-            f"/api/v1/team-comms/messages/{msg_id}/mark-delivered"
-        )
+        resp = await client.post(f"/api/v1/team-comms/messages/{msg_id}/mark-delivered")
         assert resp.status_code == 200
         assert resp.json()["delivery_status"] == "delivered"
 
     @pytest.mark.asyncio
     async def test_mark_nonexistent(self, client):
-        resp = await client.post(
-            "/api/v1/team-comms/messages/9999/mark-sent"
-        )
+        resp = await client.post("/api/v1/team-comms/messages/9999/mark-sent")
         assert resp.status_code == 404

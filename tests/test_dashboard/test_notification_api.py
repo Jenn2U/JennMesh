@@ -200,9 +200,7 @@ class TestNotificationTestFire:
 
     @pytest.mark.asyncio
     async def test_test_fire_unknown_type(self, client, db):
-        ch_id = db.create_notification_channel(
-            name="Unknown", channel_type="unknown"
-        )
+        ch_id = db.create_notification_channel(name="Unknown", channel_type="unknown")
         resp = await client.post(
             "/api/v1/notifications/test",
             json={"channel_id": ch_id},

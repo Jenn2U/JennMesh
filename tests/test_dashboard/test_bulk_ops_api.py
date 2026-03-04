@@ -194,12 +194,8 @@ class TestBulkOpsCancel:
 class TestBulkOpsList:
     @pytest.mark.asyncio
     async def test_list_operations(self, client, db):
-        db.create_bulk_operation(
-            operation_type="reboot", total_targets=2, status="completed"
-        )
-        db.create_bulk_operation(
-            operation_type="psk_rotation", total_targets=5, status="running"
-        )
+        db.create_bulk_operation(operation_type="reboot", total_targets=2, status="completed")
+        db.create_bulk_operation(operation_type="psk_rotation", total_targets=5, status="running")
         resp = await client.get("/api/v1/bulk-ops")
         assert resp.status_code == 200
         data = resp.json()
@@ -207,12 +203,8 @@ class TestBulkOpsList:
 
     @pytest.mark.asyncio
     async def test_list_with_status_filter(self, client, db):
-        db.create_bulk_operation(
-            operation_type="reboot", total_targets=2, status="completed"
-        )
-        db.create_bulk_operation(
-            operation_type="psk_rotation", total_targets=5, status="running"
-        )
+        db.create_bulk_operation(operation_type="reboot", total_targets=2, status="completed")
+        db.create_bulk_operation(operation_type="psk_rotation", total_targets=5, status="running")
         resp = await client.get("/api/v1/bulk-ops?status=running")
         assert resp.status_code == 200
         data = resp.json()

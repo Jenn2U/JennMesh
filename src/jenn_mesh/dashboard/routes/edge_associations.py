@@ -56,9 +56,7 @@ class UpdateAssociationRequest(BaseModel):
 
 
 @router.post("/edge-associations")
-async def create_association(
-    request: Request, body: CreateAssociationRequest
-) -> dict:
+async def create_association(request: Request, body: CreateAssociationRequest) -> dict:
     """Create a new edge-to-radio association."""
     manager = _get_manager(request)
     try:
@@ -80,9 +78,7 @@ async def create_association(
 
 
 @router.get("/edge-associations")
-async def list_associations(
-    request: Request, status: str | None = None
-) -> dict:
+async def list_associations(request: Request, status: str | None = None) -> dict:
     """List all edge-radio associations."""
     manager = _get_manager(request)
     associations = manager.list_associations(status=status)
@@ -143,9 +139,7 @@ async def get_combined_status(request: Request, edge_device_id: str) -> dict:
         "radio_signal_snr": status.radio_signal_snr,
         "radio_latitude": status.radio_latitude,
         "radio_longitude": status.radio_longitude,
-        "radio_last_seen": (
-            str(status.radio_last_seen) if status.radio_last_seen else None
-        ),
+        "radio_last_seen": (str(status.radio_last_seen) if status.radio_last_seen else None),
         "mesh_status": status.mesh_status,
         "association_status": status.association_status.value,
     }

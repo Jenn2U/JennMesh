@@ -103,9 +103,7 @@ class TestTranslatePosition:
         assert event.cot_type == "a-f-G-U-C-I"
 
     def test_translation_logs_event(self, gateway):
-        gateway.translate_position_to_cot(
-            node_id="!abc", latitude=30.0, longitude=-97.0
-        )
+        gateway.translate_position_to_cot(node_id="!abc", latitude=30.0, longitude=-97.0)
         events = gateway.list_events()
         assert len(events) == 1
         assert events[0]["direction"] == "outbound"
@@ -113,9 +111,7 @@ class TestTranslatePosition:
 
     def test_custom_prefix_from_config(self, gateway):
         gateway.configure(host="tak.local", callsign_prefix="OPS-")
-        event = gateway.translate_position_to_cot(
-            node_id="!abc123", latitude=30.0, longitude=-97.0
-        )
+        event = gateway.translate_position_to_cot(node_id="!abc123", latitude=30.0, longitude=-97.0)
         assert event.callsign.startswith("OPS-")
 
 
@@ -153,9 +149,7 @@ class TestCotToXml:
         assert float(point.get("hae")) == pytest.approx(150.5, abs=0.1)
 
     def test_xml_contact_callsign(self, gateway):
-        event = gateway.translate_position_to_cot(
-            node_id="!abc", latitude=30.0, longitude=-97.0
-        )
+        event = gateway.translate_position_to_cot(node_id="!abc", latitude=30.0, longitude=-97.0)
         xml_str = TakGateway.cot_to_xml(event)
         root = fromstring(xml_str)
         contact = root.find(".//contact")
@@ -226,12 +220,8 @@ class TestGatewayStatus:
         assert status.events_sent == 0
 
     def test_status_after_translation(self, gateway):
-        gateway.translate_position_to_cot(
-            node_id="!abc", latitude=30.0, longitude=-97.0
-        )
-        gateway.translate_position_to_cot(
-            node_id="!def", latitude=31.0, longitude=-98.0
-        )
+        gateway.translate_position_to_cot(node_id="!abc", latitude=30.0, longitude=-97.0)
+        gateway.translate_position_to_cot(node_id="!def", latitude=31.0, longitude=-98.0)
         status = gateway.get_status()
         assert status.events_sent >= 2
 
@@ -241,20 +231,14 @@ class TestGatewayStatus:
 
 class TestListEvents:
     def test_list_with_direction_filter(self, gateway):
-        gateway.translate_position_to_cot(
-            node_id="!abc", latitude=30.0, longitude=-97.0
-        )
+        gateway.translate_position_to_cot(node_id="!abc", latitude=30.0, longitude=-97.0)
         outbound = gateway.list_events(direction="outbound")
         assert len(outbound) == 1
         inbound = gateway.list_events(direction="inbound")
         assert len(inbound) == 0
 
     def test_list_with_node_filter(self, gateway):
-        gateway.translate_position_to_cot(
-            node_id="!abc", latitude=30.0, longitude=-97.0
-        )
-        gateway.translate_position_to_cot(
-            node_id="!def", latitude=31.0, longitude=-98.0
-        )
+        gateway.translate_position_to_cot(node_id="!abc", latitude=30.0, longitude=-97.0)
+        gateway.translate_position_to_cot(node_id="!def", latitude=31.0, longitude=-98.0)
         filtered = gateway.list_events(node_id="!abc")
         assert len(filtered) == 1

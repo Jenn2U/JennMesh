@@ -31,31 +31,22 @@ from jenn_mesh.models.asset_tracking import (
 logger = logging.getLogger(__name__)
 
 
-def _haversine_meters(
-    lat1: float, lon1: float, lat2: float, lon2: float
-) -> float:
+def _haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate distance between two GPS points in meters."""
     R = 6371000  # Earth radius in meters
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlam = math.radians(lon2 - lon1)
-    a = (
-        math.sin(dphi / 2) ** 2
-        + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
-    )
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-def _bearing_degrees(
-    lat1: float, lon1: float, lat2: float, lon2: float
-) -> float:
+def _bearing_degrees(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate bearing from point 1 to point 2 in degrees (0-360)."""
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dlam = math.radians(lon2 - lon1)
     x = math.sin(dlam) * math.cos(phi2)
-    y = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(
-        phi2
-    ) * math.cos(dlam)
+    y = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dlam)
     bearing = math.degrees(math.atan2(x, y))
     return (bearing + 360) % 360
 
@@ -143,9 +134,7 @@ class AssetTracker:
         status: str | None = None,
     ) -> list[dict]:
         """List assets with optional filters."""
-        return self._db.list_assets(
-            asset_type=asset_type, zone=zone, team=team, status=status
-        )
+        return self._db.list_assets(asset_type=asset_type, zone=zone, team=team, status=status)
 
     def update_asset(self, asset_id: int, **kwargs: object) -> bool:
         """Update asset fields."""
@@ -175,9 +164,7 @@ class AssetTracker:
         asset_id = asset["id"] if asset else 0
         asset_name = asset["name"] if asset else node_id
 
-        raw_positions = self._db.get_asset_position_trail(
-            node_id=node_id, hours=hours, limit=limit
-        )
+        raw_positions = self._db.get_asset_position_trail(node_id=node_id, hours=hours, limit=limit)
 
         # Reverse to chronological order for speed/heading computation
         raw_positions.reverse()
@@ -193,8 +180,10 @@ class AssetTracker:
             if i > 0:
                 prev = raw_positions[i - 1]
                 dist = _haversine_meters(
-                    prev["latitude"], prev["longitude"],
-                    pos["latitude"], pos["longitude"],
+                    prev["latitude"],
+                    prev["longitude"],
+                    pos["latitude"],
+                    pos["longitude"],
                 )
                 total_distance += dist
 
@@ -211,8 +200,10 @@ class AssetTracker:
 
                 # Compute heading
                 heading = _bearing_degrees(
-                    prev["latitude"], prev["longitude"],
-                    pos["latitude"], pos["longitude"],
+                    prev["latitude"],
+                    prev["longitude"],
+                    pos["latitude"],
+                    pos["longitude"],
                 )
 
             positions.append(
@@ -267,9 +258,7 @@ class AssetTracker:
 
             if device is None or device.get("last_seen") is None:
                 if asset["status"] != AssetStatus.OUT_OF_RANGE.value:
-                    self._db.update_asset(
-                        asset["id"], status=AssetStatus.OUT_OF_RANGE.value
-                    )
+                    self._db.update_asset(asset["id"], status=AssetStatus.OUT_OF_RANGE.value)
                     changed += 1
                 continue
 

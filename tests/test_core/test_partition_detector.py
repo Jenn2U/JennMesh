@@ -18,22 +18,10 @@ from jenn_mesh.db import MeshDatabase
 def db(tmp_path) -> MeshDatabase:
     db = MeshDatabase(db_path=str(tmp_path / "part_test.db"))
     # Create a 4-node fleet with GPS
-    db.upsert_device(
-        "!n1", long_name="Node1", role="ROUTER",
-        latitude=30.2672, longitude=-97.7431
-    )
-    db.upsert_device(
-        "!n2", long_name="Node2", role="CLIENT",
-        latitude=30.2700, longitude=-97.7400
-    )
-    db.upsert_device(
-        "!n3", long_name="Node3", role="CLIENT",
-        latitude=32.7767, longitude=-96.7970
-    )
-    db.upsert_device(
-        "!n4", long_name="Node4", role="SENSOR",
-        latitude=32.7800, longitude=-96.8000
-    )
+    db.upsert_device("!n1", long_name="Node1", role="ROUTER", latitude=30.2672, longitude=-97.7431)
+    db.upsert_device("!n2", long_name="Node2", role="CLIENT", latitude=30.2700, longitude=-97.7400)
+    db.upsert_device("!n3", long_name="Node3", role="CLIENT", latitude=32.7767, longitude=-96.7970)
+    db.upsert_device("!n4", long_name="Node4", role="SENSOR", latitude=32.7800, longitude=-96.8000)
     return db
 
 

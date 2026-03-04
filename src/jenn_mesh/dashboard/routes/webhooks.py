@@ -95,9 +95,7 @@ async def get_webhook(request: Request, webhook_id: int) -> dict:
 
 
 @router.put("/webhooks/{webhook_id}")
-async def update_webhook(
-    request: Request, webhook_id: int, body: UpdateWebhookRequest
-) -> dict:
+async def update_webhook(request: Request, webhook_id: int, body: UpdateWebhookRequest) -> dict:
     """Update an existing webhook."""
     manager = _get_manager(request)
     updates = body.model_dump(exclude_none=True)
@@ -133,9 +131,7 @@ async def test_fire_webhook(request: Request, webhook_id: int) -> dict:
 
 
 @router.get("/webhooks/{webhook_id}/deliveries")
-async def list_webhook_deliveries(
-    request: Request, webhook_id: int, limit: int = 50
-) -> dict:
+async def list_webhook_deliveries(request: Request, webhook_id: int, limit: int = 50) -> dict:
     """List delivery history for a specific webhook."""
     manager = _get_manager(request)
     wh = manager.get_webhook(webhook_id)

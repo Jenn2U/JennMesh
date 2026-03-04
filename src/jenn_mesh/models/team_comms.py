@@ -65,8 +65,7 @@ class TeamMessage(BaseModel):
             raise ValueError("Message cannot be empty")
         if len(v) > MAX_TEAM_MESSAGE_LENGTH:
             raise ValueError(
-                f"Message exceeds {MAX_TEAM_MESSAGE_LENGTH} characters "
-                f"(got {len(v)})"
+                f"Message exceeds {MAX_TEAM_MESSAGE_LENGTH} characters " f"(got {len(v)})"
             )
         return v.strip()
 

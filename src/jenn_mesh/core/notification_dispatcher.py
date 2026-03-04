@@ -45,9 +45,7 @@ def _format_slack(
     Returns:
         Slack Block Kit payload dict ready for JSON serialization.
     """
-    severity_emoji = {"critical": "🔴", "warning": "🟡", "info": "🔵"}.get(
-        severity, "⚪"
-    )
+    severity_emoji = {"critical": "🔴", "warning": "🟡", "info": "🔵"}.get(severity, "⚪")
     node_id = data.get("node_id", "unknown")
     message = data.get("message", alert_type.replace("_", " ").title())
 
@@ -192,13 +190,12 @@ class NotificationDispatcher:
             except Exception:
                 logger.exception(
                     "Failed to deliver notification to channel %d (%s)",
-                    ch["id"], ch.get("name", ""),
+                    ch["id"],
+                    ch.get("name", ""),
                 )
 
         if sent:
-            logger.info(
-                "Notified %d channel(s) for %s/%s", sent, alert_type, severity
-            )
+            logger.info("Notified %d channel(s) for %s/%s", sent, alert_type, severity)
         return sent
 
     def _send_slack(

@@ -285,6 +285,4 @@ class TakGateway:
         limit: int = 50,
     ) -> list[dict]:
         """List TAK events from the DB."""
-        return self._db.list_tak_events(
-            direction=direction, node_id=node_id, limit=limit
-        )
+        return self._db.list_tak_events(direction=direction, node_id=node_id, limit=limit)

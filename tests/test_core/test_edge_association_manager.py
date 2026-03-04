@@ -105,9 +105,7 @@ class TestCRUD:
 
     def test_update_association(self, manager):
         manager.create_association(edge_device_id="edge-001", node_id="!abc")
-        assert manager.update_association(
-            "edge-001", edge_hostname="new-host"
-        )
+        assert manager.update_association("edge-001", edge_hostname="new-host")
         assoc = manager.get_by_edge("edge-001")
         assert assoc["edge_hostname"] == "new-host"
 

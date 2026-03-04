@@ -408,7 +408,6 @@ class MeshWatchdog:
             "auto_resolved": resolved,
         }
 
-
     def _check_encryption_audit(self) -> dict:
         """Audit fleet encryption posture and flag weak/unencrypted channels."""
         from jenn_mesh.core.encryption_auditor import EncryptionAuditor
@@ -427,9 +426,7 @@ class MeshWatchdog:
                     device_audit.node_id, AlertType.ENCRYPTION_WEAK.value
                 ):
                     severity = ALERT_SEVERITY_MAP[AlertType.ENCRYPTION_WEAK].value
-                    weak_names = ", ".join(
-                        ch.channel_name for ch in device_audit.weak_channels
-                    )
+                    weak_names = ", ".join(ch.channel_name for ch in device_audit.weak_channels)
                     msg = f"Weak/unencrypted channels: {weak_names}"
                     self.db.create_alert(
                         device_audit.node_id,

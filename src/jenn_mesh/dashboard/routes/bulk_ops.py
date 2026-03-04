@@ -46,7 +46,9 @@ class TargetFilterRequest(BaseModel):
 
 
 class BulkOperationRequest(BaseModel):
-    operation_type: str = Field(description="config_push, reboot, psk_rotation, firmware_update, factory_reset")
+    operation_type: str = Field(
+        description="config_push, reboot, psk_rotation, firmware_update, factory_reset"
+    )
     target_filter: TargetFilterRequest = Field(default_factory=TargetFilterRequest)
     config_template_id: int | None = None
     parameters: dict = Field(default_factory=dict)
@@ -116,9 +118,7 @@ async def cancel_operation(request: Request, operation_id: int) -> dict:
 
 
 @router.get("/bulk-ops")
-async def list_operations(
-    request: Request, limit: int = 50, status: str | None = None
-) -> dict:
+async def list_operations(request: Request, limit: int = 50, status: str | None = None) -> dict:
     """List bulk operations with optional status filter."""
     manager = _get_manager(request)
     ops = manager.list_operations(limit=limit, status=status)

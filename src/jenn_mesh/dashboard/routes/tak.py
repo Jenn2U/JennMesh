@@ -38,9 +38,7 @@ class TakConfigRequest(BaseModel):
     port: int = Field(default=8087, description="TAK server port")
     use_tls: bool = Field(default=False, description="Use TLS")
     callsign_prefix: str = Field(default="JENN-", description="Node callsign prefix")
-    stale_timeout_seconds: int = Field(
-        default=600, description="CoT marker stale timeout"
-    )
+    stale_timeout_seconds: int = Field(default=600, description="CoT marker stale timeout")
     enabled: bool = Field(default=True)
 
 
@@ -126,9 +124,7 @@ async def update_tak_config(request: Request, body: TakConfigRequest) -> dict:
 
 
 @router.post("/tak/translate")
-async def translate_position(
-    request: Request, body: TranslatePositionRequest
-) -> dict:
+async def translate_position(request: Request, body: TranslatePositionRequest) -> dict:
     """Translate a mesh node position to CoT XML."""
     gateway = _get_gateway(request)
     event = gateway.translate_position_to_cot(
@@ -165,9 +161,7 @@ async def list_tak_events(
 ) -> dict:
     """List TAK CoT events."""
     gateway = _get_gateway(request)
-    events = gateway.list_events(
-        direction=direction, node_id=node_id, limit=limit
-    )
+    events = gateway.list_events(direction=direction, node_id=node_id, limit=limit)
     return {"status": "ok", "count": len(events), "events": events}
 
 

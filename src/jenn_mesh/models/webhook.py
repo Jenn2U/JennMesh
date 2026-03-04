@@ -54,7 +54,5 @@ class WebhookPayload(BaseModel):
 
     event_type: str = Field(description="The event that triggered this delivery")
     timestamp: str = Field(description="ISO-8601 UTC timestamp of the event")
-    data: dict[str, Any] = Field(
-        default_factory=dict, description="Event-specific data"
-    )
+    data: dict[str, Any] = Field(default_factory=dict, description="Event-specific data")
     source: str = Field(default="jenn-mesh", description="Originating service")
