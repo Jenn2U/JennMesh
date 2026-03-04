@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator, Optional
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 SCHEMA_SQL = """
 -- Device registry: every known radio in the fleet
@@ -361,6 +361,37 @@ CREATE TABLE IF NOT EXISTS crdt_sync_log (
 CREATE INDEX IF NOT EXISTS idx_sync_log_node
     ON crdt_sync_log(node_id, created_at DESC);
 
+-- Geofences: virtual boundary zones for mesh node tracking
+CREATE TABLE IF NOT EXISTS geofences (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    fence_type  TEXT NOT NULL DEFAULT 'circle',
+    center_lat  REAL,
+    center_lon  REAL,
+    radius_m    REAL,
+    polygon_json TEXT,
+    node_filter TEXT,
+    trigger_on  TEXT NOT NULL DEFAULT 'exit',
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT
+);
+
+-- Coverage samples: aggregated RSSI observations at geographic locations
+CREATE TABLE IF NOT EXISTS coverage_samples (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_node   TEXT NOT NULL,
+    to_node     TEXT NOT NULL,
+    latitude    REAL NOT NULL,
+    longitude   REAL NOT NULL,
+    rssi        REAL NOT NULL,
+    snr         REAL,
+    timestamp   TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (from_node) REFERENCES devices(node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_coverage_location ON coverage_samples(latitude, longitude);
+CREATE INDEX IF NOT EXISTS idx_coverage_time ON coverage_samples(timestamp DESC);
+
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version         INTEGER NOT NULL,
@@ -409,6 +440,7 @@ class MeshDatabase:
                     # v9 → v10: config_snapshots table (CREATE IF NOT EXISTS only)
                     # v10 → v11: crdt_sync_queue, crdt_sync_fragments, crdt_sync_log
                     #            (CREATE IF NOT EXISTS only)
+                    # v11 → v12: geofences, coverage_samples (CREATE IF NOT EXISTS only)
                     if current_version < 4:
                         # Add new columns (safe: ALTER TABLE ADD COLUMN is idempotent-ish,
                         # but we guard with version check to avoid "duplicate column" errors)
@@ -1781,3 +1813,157 @@ class MeshDatabase:
                 (node_id, limit),
             ).fetchall()
             return [dict(r) for r in rows]
+
+    # ── Geofences ────────────────────────────────────────────────────
+
+    def create_geofence(
+        self,
+        name: str,
+        fence_type: str = "circle",
+        center_lat: Optional[float] = None,
+        center_lon: Optional[float] = None,
+        radius_m: Optional[float] = None,
+        polygon_json: Optional[str] = None,
+        node_filter: Optional[str] = None,
+        trigger_on: str = "exit",
+        enabled: bool = True,
+    ) -> int:
+        """Create a geofence zone. Returns the fence ID.
+
+        For circles: provide center_lat, center_lon, radius_m.
+        For polygons: provide polygon_json (JSON array of [lat, lon] pairs).
+        node_filter: JSON array of node_ids, or None for all nodes.
+        """
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO geofences
+                   (name, fence_type, center_lat, center_lon, radius_m,
+                    polygon_json, node_filter, trigger_on, enabled)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    name,
+                    fence_type,
+                    center_lat,
+                    center_lon,
+                    radius_m,
+                    polygon_json,
+                    node_filter,
+                    trigger_on,
+                    1 if enabled else 0,
+                ),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def update_geofence(self, fence_id: int, **kwargs: object) -> bool:
+        """Update geofence fields by ID. Returns True if fence existed."""
+        if not kwargs:
+            return False
+        # Always set updated_at
+        kwargs["updated_at"] = datetime.now(timezone.utc).isoformat()
+        # Convert boolean 'enabled' to int for SQLite
+        if "enabled" in kwargs:
+            kwargs["enabled"] = 1 if kwargs["enabled"] else 0
+        set_clause = ", ".join(f"{k} = ?" for k in kwargs)
+        values = list(kwargs.values()) + [fence_id]
+        with self.connection() as conn:
+            cursor = conn.execute(
+                f"UPDATE geofences SET {set_clause} WHERE id = ?",
+                values,
+            )
+            return cursor.rowcount > 0
+
+    def get_geofence(self, fence_id: int) -> Optional[dict]:
+        """Get a single geofence by ID."""
+        with self.connection() as conn:
+            row = conn.execute("SELECT * FROM geofences WHERE id = ?", (fence_id,)).fetchone()
+            return dict(row) if row else None
+
+    def list_geofences(self, enabled_only: bool = False) -> list[dict]:
+        """List all geofences, optionally filtered to enabled only."""
+        with self.connection() as conn:
+            if enabled_only:
+                rows = conn.execute(
+                    "SELECT * FROM geofences WHERE enabled = 1 ORDER BY created_at DESC"
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM geofences ORDER BY created_at DESC").fetchall()
+            return [dict(r) for r in rows]
+
+    def delete_geofence(self, fence_id: int) -> bool:
+        """Delete a geofence by ID. Returns True if fence existed."""
+        with self.connection() as conn:
+            cursor = conn.execute("DELETE FROM geofences WHERE id = ?", (fence_id,))
+            return cursor.rowcount > 0
+
+    # ── Coverage samples ─────────────────────────────────────────────
+
+    def add_coverage_sample(
+        self,
+        from_node: str,
+        to_node: str,
+        latitude: float,
+        longitude: float,
+        rssi: float,
+        snr: Optional[float] = None,
+        timestamp: Optional[str] = None,
+    ) -> int:
+        """Record a signal observation at a location. Returns the sample ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO coverage_samples
+                   (from_node, to_node, latitude, longitude, rssi, snr, timestamp)
+                   VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))""",
+                (from_node, to_node, latitude, longitude, rssi, snr, timestamp),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_coverage_in_bounds(
+        self,
+        min_lat: float,
+        max_lat: float,
+        min_lon: float,
+        max_lon: float,
+        limit: int = 10000,
+    ) -> list[dict]:
+        """Get coverage samples within a geographic bounding box."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM coverage_samples
+                   WHERE latitude BETWEEN ? AND ?
+                   AND longitude BETWEEN ? AND ?
+                   ORDER BY timestamp DESC LIMIT ?""",
+                (min_lat, max_lat, min_lon, max_lon, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_coverage_stats(self) -> dict:
+        """Get fleet-wide coverage statistics."""
+        with self.connection() as conn:
+            row = conn.execute("""SELECT COUNT(*) as total_samples,
+                          AVG(rssi) as avg_rssi,
+                          MIN(rssi) as min_rssi,
+                          MAX(rssi) as max_rssi,
+                          MAX(timestamp) as last_sample_at
+                   FROM coverage_samples""").fetchone()
+            return dict(row) if row else {}
+
+    def get_coverage_for_node(self, node_id: str, limit: int = 500) -> list[dict]:
+        """Get coverage samples involving a specific node (as sender or receiver)."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM coverage_samples
+                   WHERE from_node = ? OR to_node = ?
+                   ORDER BY timestamp DESC LIMIT ?""",
+                (node_id, node_id, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def prune_old_coverage(self, days: int = 30) -> int:
+        """Delete coverage samples older than N days. Returns count deleted."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """DELETE FROM coverage_samples
+                   WHERE timestamp < datetime('now', ?)""",
+                (f"-{days} days",),
+            )
+            return cursor.rowcount

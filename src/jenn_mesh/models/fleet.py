@@ -34,6 +34,14 @@ class AlertType(str, Enum):
     SYNC_RELAY_COMPLETED = "sync_relay_completed"
     SYNC_RELAY_FAILED = "sync_relay_failed"
     SYNC_SV_MISMATCH = "sync_sv_mismatch"
+    # v0.4.0 — Intelligence & Analytics
+    ANOMALY_DETECTED = "anomaly_detected"
+    GEOFENCE_BREACH = "geofence_breach"
+    GEOFENCE_DWELL = "geofence_dwell"
+    COVERAGE_GAP = "coverage_gap"
+    COVERAGE_DEGRADED = "coverage_degraded"
+    # v0.5.0 — Environmental telemetry
+    ENV_THRESHOLD_EXCEEDED = "env_threshold_exceeded"
 
 
 class AlertSeverity(str, Enum):
@@ -84,6 +92,14 @@ ALERT_SEVERITY_MAP: dict[AlertType, AlertSeverity] = {
     AlertType.SYNC_RELAY_COMPLETED: AlertSeverity.INFO,
     AlertType.SYNC_RELAY_FAILED: AlertSeverity.WARNING,
     AlertType.SYNC_SV_MISMATCH: AlertSeverity.INFO,
+    # v0.4.0 — Intelligence & Analytics
+    AlertType.ANOMALY_DETECTED: AlertSeverity.WARNING,
+    AlertType.GEOFENCE_BREACH: AlertSeverity.WARNING,
+    AlertType.GEOFENCE_DWELL: AlertSeverity.INFO,
+    AlertType.COVERAGE_GAP: AlertSeverity.INFO,
+    AlertType.COVERAGE_DEGRADED: AlertSeverity.WARNING,
+    # v0.5.0 — Environmental telemetry
+    AlertType.ENV_THRESHOLD_EXCEEDED: AlertSeverity.WARNING,
 }
 
 
