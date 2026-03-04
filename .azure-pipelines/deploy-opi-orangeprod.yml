@@ -29,21 +29,11 @@ variables:
   sshConnection: 'ssh-opi-orangeprod-mesh'
   lanSubnet: '10.10.50.0/24'
 
-stages:
-  - stage: Deploy
-    displayName: 'Deploy to OrangePiProd'
-    jobs:
-      - deployment: DeployOrangePiProd
-        displayName: 'Deploy JennMesh to OrangePiProd'
-        environment: 'jennmesh-orangepiprod'
-        strategy:
-          runOnce:
-            deploy:
-              steps:
-                - template: templates/deploy-mesh-server.yml
-                  parameters:
-                    nodeName: 'OrangePiProd'
-                    sshServiceConnection: $(sshConnection)
-                    targetHost: $(targetHost)
-                    lanSubnet: $(lanSubnet)
-                    healthCheckRetries: 5
+steps:
+  - template: templates/deploy-mesh-server.yml
+    parameters:
+      nodeName: 'OrangePiProd'
+      sshServiceConnection: $(sshConnection)
+      targetHost: $(targetHost)
+      lanSubnet: $(lanSubnet)
+      healthCheckRetries: 5
