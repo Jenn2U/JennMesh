@@ -245,7 +245,21 @@ async def health_check(request: Request) -> dict:
     else:
         components["partition_detection"] = {"status": "unavailable"}
 
-    # 17. Uptime
+    # 17. Bulk operations
+    bom = getattr(request.app.state, "bulk_operation_manager", None)
+    if bom is not None:
+        try:
+            running_ops = bom.list_operations(limit=10, status="running")
+            components["bulk_operations"] = {
+                "status": "healthy",
+                "running_operation_count": len(running_ops),
+            }
+        except Exception as exc:
+            components["bulk_operations"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["bulk_operations"] = {"status": "unavailable"}
+
+    # 18. Uptime
     startup_time = getattr(request.app.state, "startup_time", None)
     if startup_time is not None:
         uptime = (datetime.now(timezone.utc) - startup_time).total_seconds()
