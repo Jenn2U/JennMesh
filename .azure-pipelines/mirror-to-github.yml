@@ -18,13 +18,16 @@ steps:
     persistCredentials: true
 
   - script: |
+      set -euo pipefail
       git config --global user.email "mirror-bot@magnivation.com"
       git config --global user.name "Mirror Bot"
-      git remote add github https://$(GITHUB_PAT)@github.com/Jenn2U/JennMesh.git || git remote set-url github https://$(GITHUB_PAT)@github.com/Jenn2U/JennMesh.git
+      GITHUB_URL="https://${GITHUB_PAT}@github.com/Jenn2U/JennMesh.git"
+      git remote add github "${GITHUB_URL}" 2>/dev/null || git remote set-url github "${GITHUB_URL}"
       # Push all remote tracking branches (excluding HEAD) as local branches on GitHub
       for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin/ | grep -v '/HEAD$'); do
-        branch=${ref#origin/}
-        git push github "refs/remotes/origin/${branch}:refs/heads/${branch}" --force
+        branch="${ref#origin/}"
+        echo "Pushing branch: ${branch}"
+        git push github "refs/remotes/origin/${branch}:refs/heads/${branch}" --force || echo "Warning: failed to push ${branch}"
       done
       # Push all tags
       git push github --tags --force

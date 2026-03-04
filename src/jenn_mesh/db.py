@@ -1586,9 +1586,11 @@ class MeshDatabase:
     def get_config_queue_stats(self) -> dict:
         """Get aggregate config queue counts by status."""
         with self.connection() as conn:
-            rows = conn.execute("""SELECT status, COUNT(*) as count
+            rows = conn.execute(
+                """SELECT status, COUNT(*) as count
                    FROM config_queue
-                   GROUP BY status""").fetchall()
+                   GROUP BY status"""
+            ).fetchall()
             stats: dict[str, int] = {}
             for row in rows:
                 stats[row["status"]] = row["count"]
@@ -1642,9 +1644,11 @@ class MeshDatabase:
     def list_active_failover_events(self) -> list[dict]:
         """List all active failover events, newest first."""
         with self.connection() as conn:
-            rows = conn.execute("""SELECT * FROM failover_events
+            rows = conn.execute(
+                """SELECT * FROM failover_events
                    WHERE status = 'active'
-                   ORDER BY created_at DESC""").fetchall()
+                   ORDER BY created_at DESC"""
+            ).fetchall()
             return [dict(r) for r in rows]
 
     def update_failover_event_status(
@@ -1844,9 +1848,11 @@ class MeshDatabase:
         wait, confirm, or rollback based on the window.
         """
         with self.connection() as conn:
-            rows = conn.execute("""SELECT * FROM config_snapshots
+            rows = conn.execute(
+                """SELECT * FROM config_snapshots
                    WHERE status = 'monitoring'
-                   ORDER BY push_completed_at ASC""").fetchall()
+                   ORDER BY push_completed_at ASC"""
+            ).fetchall()
             return [dict(r) for r in rows]
 
     def get_recent_snapshots(self, limit: int = 50) -> list[dict]:
@@ -1910,9 +1916,11 @@ class MeshDatabase:
                     (node_id,),
                 ).fetchall()
             else:
-                rows = conn.execute("""SELECT * FROM crdt_sync_queue
+                rows = conn.execute(
+                    """SELECT * FROM crdt_sync_queue
                        WHERE status IN ('pending', 'sending')
-                       ORDER BY priority ASC, created_at ASC""").fetchall()
+                       ORDER BY priority ASC, created_at ASC"""
+                ).fetchall()
             return [dict(r) for r in rows]
 
     # ── CRDT sync fragments ─────────────────────────────────────────
@@ -2154,12 +2162,14 @@ class MeshDatabase:
     def get_coverage_stats(self) -> dict:
         """Get fleet-wide coverage statistics."""
         with self.connection() as conn:
-            row = conn.execute("""SELECT COUNT(*) as total_samples,
+            row = conn.execute(
+                """SELECT COUNT(*) as total_samples,
                           AVG(rssi) as avg_rssi,
                           MIN(rssi) as min_rssi,
                           MAX(rssi) as max_rssi,
                           MAX(timestamp) as last_sample_at
-                   FROM coverage_samples""").fetchone()
+                   FROM coverage_samples"""
+            ).fetchone()
             return dict(row) if row else {}
 
     def get_coverage_for_node(self, node_id: str, limit: int = 500) -> list[dict]:
@@ -2231,14 +2241,16 @@ class MeshDatabase:
     def get_fleet_env_summary(self) -> dict:
         """Get fleet-wide environmental summary (latest reading per node)."""
         with self.connection() as conn:
-            rows = conn.execute("""SELECT e.*
+            rows = conn.execute(
+                """SELECT e.*
                    FROM env_telemetry e
                    INNER JOIN (
                        SELECT node_id, MAX(timestamp) as max_ts
                        FROM env_telemetry
                        GROUP BY node_id
                    ) latest ON e.node_id = latest.node_id
-                   AND e.timestamp = latest.max_ts""").fetchall()
+                   AND e.timestamp = latest.max_ts"""
+            ).fetchall()
             readings = [dict(r) for r in rows]
 
             # Compute fleet-wide aggregates
@@ -2636,9 +2648,11 @@ class MeshDatabase:
     def get_latest_partition_event(self) -> Optional[dict]:
         """Get the most recent unresolved partition event, if any."""
         with self.connection() as conn:
-            row = conn.execute("""SELECT * FROM partition_events
+            row = conn.execute(
+                """SELECT * FROM partition_events
                    WHERE resolved_at IS NULL
-                   ORDER BY created_at DESC LIMIT 1""").fetchone()
+                   ORDER BY created_at DESC LIMIT 1"""
+            ).fetchone()
             return dict(row) if row else None
 
     # ── Bulk Operation CRUD ───────────────────────────────────────────
@@ -2923,8 +2937,10 @@ class MeshDatabase:
     def get_tak_event_counts(self) -> dict:
         """Get event counts by direction."""
         with self.connection() as conn:
-            rows = conn.execute("""SELECT direction, COUNT(*) as count
-                   FROM tak_events GROUP BY direction""").fetchall()
+            rows = conn.execute(
+                """SELECT direction, COUNT(*) as count
+                   FROM tak_events GROUP BY direction"""
+            ).fetchall()
             return {r["direction"]: r["count"] for r in rows}
 
     # ── Asset Tracking (v0.7.0) ──────────────────────────────────────────
