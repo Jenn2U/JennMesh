@@ -2,7 +2,6 @@
 
 from datetime import datetime
 
-import pytest
 
 from jenn_mesh.models.device import DeviceRole
 from jenn_mesh.models.topology import TopologyEdge, TopologyGraph, TopologyNode

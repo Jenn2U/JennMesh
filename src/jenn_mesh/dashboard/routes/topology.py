@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from jenn_mesh.core.topology import TopologyManager
 

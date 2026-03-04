@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import tempfile
 from xml.etree.ElementTree import fromstring
 
 import pytest
 
 from jenn_mesh.core.tak_gateway import TakGateway
 from jenn_mesh.db import MeshDatabase
-from jenn_mesh.models.tak import CotEvent, CotType, TakConnectionStatus
+from jenn_mesh.models.tak import CotType, TakConnectionStatus
 
 
 @pytest.fixture

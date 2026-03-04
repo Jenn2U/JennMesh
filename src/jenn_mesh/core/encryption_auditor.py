@@ -14,7 +14,6 @@ with factory settings can decode it.  The auditor flags these as
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from jenn_mesh.db import MeshDatabase
 from jenn_mesh.models.encryption import (

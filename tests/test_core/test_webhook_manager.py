@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import tempfile
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -78,7 +77,7 @@ class TestWebhookCRUD:
         assert len(all_hooks) == 2
 
     def test_list_active_only(self, manager, db):
-        wh = manager.create_webhook(name="Active", url="https://a.com/hook")
+        manager.create_webhook(name="Active", url="https://a.com/hook")
         wh2 = manager.create_webhook(name="Inactive", url="https://b.com/hook")
         db.update_webhook(wh2["id"], is_active=False)
         active = manager.list_webhooks(active_only=True)
@@ -198,7 +197,7 @@ class TestDeliveryProcessing:
     def test_process_successful_delivery(self, manager, db):
         import sys
 
-        wh = manager.create_webhook(
+        manager.create_webhook(
             name="Hook",
             url="https://a.com/hook",
             secret="test-secret",

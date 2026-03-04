@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import tempfile
 from datetime import datetime, timedelta
 
 import pytest
 
 from jenn_mesh.core.edge_association_manager import EdgeAssociationManager
 from jenn_mesh.db import MeshDatabase
-from jenn_mesh.models.edge_association import AssociationStatus
 
 
 @pytest.fixture

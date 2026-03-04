@@ -1,13 +1,10 @@
 """Tests for GPS location models — including Haversine distance."""
 
-import math
-
 import pytest
 
 from jenn_mesh.models.location import (
     GPSPosition,
     LostNodeQuery,
-    NearbyNode,
     ProximityResult,
 )
 

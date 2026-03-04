@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import tempfile
 
 import pytest
 
@@ -34,7 +33,7 @@ class TestWebhookCRUD:
         assert len(webhooks) == 2
 
     def test_list_active_only(self, db):
-        wh1 = db.create_webhook(name="Active", url="https://a.com")
+        db.create_webhook(name="Active", url="https://a.com")
         wh2 = db.create_webhook(name="Inactive", url="https://b.com")
         db.update_webhook(wh2, is_active=False)
         active = db.list_webhooks(active_only=True)
@@ -66,7 +65,7 @@ class TestWebhookCRUD:
 class TestWebhookDeliveryCRUD:
     def test_create_delivery(self, db):
         wh_id = db.create_webhook(name="H", url="https://h.com")
-        d_id = db.create_webhook_delivery(wh_id, "alert_created", '{"test":1}')
+        db.create_webhook_delivery(wh_id, "alert_created", '{"test":1}')
         deliveries = db.list_webhook_deliveries(wh_id)
         assert len(deliveries) == 1
         assert deliveries[0]["event_type"] == "alert_created"
@@ -116,7 +115,7 @@ class TestNotificationChannelCRUD:
         assert len(channels) == 2
 
     def test_list_active_only(self, db):
-        ch1 = db.create_notification_channel(name="Active", channel_type="slack")
+        db.create_notification_channel(name="Active", channel_type="slack")
         ch2 = db.create_notification_channel(name="Inactive", channel_type="email")
         db.update_notification_channel(ch2, is_active=False)
         active = db.list_notification_channels(active_only=True)

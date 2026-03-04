@@ -29,7 +29,6 @@ def main() -> None:
     @click.pass_context
     def fleet(ctx: click.Context) -> None:
         """Fleet management commands."""
-        pass
 
     @fleet.command("list")
     @click.pass_context
@@ -98,7 +97,6 @@ def main() -> None:
     @click.pass_context
     def config(ctx: click.Context) -> None:
         """Configuration management commands."""
-        pass
 
     @config.command("drift")
     @click.pass_context

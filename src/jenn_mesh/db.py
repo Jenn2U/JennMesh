@@ -2624,7 +2624,8 @@ class MeshDatabase:
         with self.connection() as conn:
             if event_type:
                 rows = conn.execute(
-                    "SELECT * FROM partition_events WHERE event_type = ? ORDER BY created_at DESC LIMIT ?",
+                    "SELECT * FROM partition_events WHERE event_type = ?"
+                    " ORDER BY created_at DESC LIMIT ?",
                     (event_type, limit),
                 ).fetchall()
             else:
@@ -2697,7 +2698,8 @@ class MeshDatabase:
         with self.connection() as conn:
             if status:
                 rows = conn.execute(
-                    "SELECT * FROM bulk_operations WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+                    "SELECT * FROM bulk_operations WHERE status = ?"
+                    " ORDER BY created_at DESC LIMIT ?",
                     (status, limit),
                 ).fetchall()
             else:

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import tempfile
 
 import pytest
 
@@ -155,7 +153,7 @@ class TestPartitionDetector:
     def test_no_change_no_event(self, db):
         _create_full_mesh(db)
         detector = PartitionDetector(db=db)
-        result1 = detector.check_partitions()
+        detector.check_partitions()
         # Second check with same topology — no change
         result2 = detector.check_partitions()
         assert result2["event_type"] is None

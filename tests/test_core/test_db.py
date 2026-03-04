@@ -1,7 +1,5 @@
 """Tests for SQLite WAL database operations."""
 
-import pytest
-
 from jenn_mesh.db import MeshDatabase
 
 

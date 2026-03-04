@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import tempfile
 from datetime import datetime, timedelta
 
 import pytest
 
 from jenn_mesh.core.asset_tracker import AssetTracker, _bearing_degrees, _haversine_meters
 from jenn_mesh.db import MeshDatabase
-from jenn_mesh.models.asset_tracking import AssetStatus, AssetType
+from jenn_mesh.models.asset_tracking import AssetType
 
 
 @pytest.fixture
@@ -198,7 +197,7 @@ class TestUpdateStatuses:
         tracker.register_asset(name="T", asset_type="vehicle", node_id="!abc")
         now = datetime.utcnow()
         db.upsert_device("!abc", last_seen=now.isoformat())
-        changed = tracker.update_asset_statuses()
+        tracker.update_asset_statuses()
         asset = tracker.get_asset_by_node("!abc")
         assert asset["status"] == "active"
 

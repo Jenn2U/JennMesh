@@ -1,10 +1,6 @@
-"""Tests for v0.6.0 Pydantic models — encryption, webhook, notification, partition, bulk_ops, api."""
+"""Tests for v0.6.0 models — encryption, webhook, notification, partition, bulk_ops, api."""
 
 from __future__ import annotations
-
-import json
-
-import pytest
 
 from jenn_mesh.models.api import ConfirmRequest, PaginatedResponse, StatusResponse
 from jenn_mesh.models.bulk_ops import (

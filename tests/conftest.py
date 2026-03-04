@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -256,7 +255,7 @@ def populated_db(db: MeshDatabase) -> MeshDatabase:
     db.update_webhook(wh2_id, is_active=False)
 
     # Webhook delivery seed data (1 pending, 1 delivered)
-    d1_id = db.create_webhook_delivery(
+    db.create_webhook_delivery(
         webhook_id=wh1_id,
         event_type="alert_created",
         payload_json='{"event_type":"alert_created","data":{"node_id":"!ccc33333"}}',

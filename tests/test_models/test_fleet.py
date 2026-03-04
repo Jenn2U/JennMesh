@@ -6,7 +6,6 @@ from jenn_mesh.models.fleet import (
     AlertSeverity,
     AlertType,
     FleetHealth,
-    NodeStatus,
 )
 
 

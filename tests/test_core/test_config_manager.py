@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-import pytest
 
 from jenn_mesh.core.config_manager import ConfigManager
 from jenn_mesh.db import MeshDatabase

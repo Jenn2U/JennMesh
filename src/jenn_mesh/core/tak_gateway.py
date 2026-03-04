@@ -19,7 +19,6 @@ Usage (standalone)::
 from __future__ import annotations
 
 import logging
-import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from xml.etree.ElementTree import Element, SubElement, tostring
@@ -28,7 +27,6 @@ from jenn_mesh.db import MeshDatabase
 from jenn_mesh.models.tak import (
     CotEvent,
     CotType,
-    TakConnectionStatus,
     TakGatewayStatus,
     TakServerConfig,
 )

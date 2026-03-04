@@ -1,6 +1,6 @@
 """Tests for device registry — fleet management operations."""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from jenn_mesh.core.registry import DeviceRegistry
 from jenn_mesh.db import MeshDatabase
@@ -72,7 +72,7 @@ class TestOfflineDetection:
 
     def test_no_duplicate_alerts(self, populated_db: MeshDatabase):
         registry = DeviceRegistry(populated_db, offline_threshold_seconds=600)
-        alerts1 = registry.check_offline_nodes()
+        registry.check_offline_nodes()
         alerts2 = registry.check_offline_nodes()
         # Second call should not create duplicates
         assert len(alerts2) == 0

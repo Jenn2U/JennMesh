@@ -25,7 +25,6 @@ import hashlib
 import hmac
 import json
 import logging
-import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -228,7 +227,7 @@ class WebhookManager:
         else:
             delay_idx = min(next_attempt - 1, len(RETRY_DELAYS_SECONDS) - 1)
             delay = RETRY_DELAYS_SECONDS[delay_idx]
-            next_retry = datetime.now(timezone.utc).isoformat()
+            datetime.now(timezone.utc).isoformat()
             # Compute next_retry_at by adding delay
             from datetime import timedelta
 
