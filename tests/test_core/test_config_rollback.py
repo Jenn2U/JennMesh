@@ -10,7 +10,7 @@ import pytest
 
 from jenn_mesh.agent.remote_admin import RemoteAdminResult
 from jenn_mesh.core.config_rollback import ConfigRollbackManager
-from jenn_mesh.db import MeshDatabase
+from jenn_mesh.db import SCHEMA_VERSION, MeshDatabase
 
 SAMPLE_YAML = """\
 owner:
@@ -133,12 +133,12 @@ class TestConfigSnapshotDB:
         recent = db.get_recent_snapshots(limit=10)
         assert len(recent) == 3
 
-    def test_schema_version_is_11(self, db: MeshDatabase) -> None:
+    def test_schema_version_current(self, db: MeshDatabase) -> None:
         with db.connection() as conn:
             row = conn.execute(
                 "SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1"
             ).fetchone()
-        assert row["version"] == 11
+        assert row["version"] == SCHEMA_VERSION
 
 
 # ── snapshot_before_push ─────────────────────────────────────────────

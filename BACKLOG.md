@@ -2,8 +2,8 @@
 
 *Part of the JENN Intelligent Ecosystem — Centralized Meshtastic LoRa radio fleet management.*
 
-**Last Updated**: 2026-03-03 (v0.3.0 released)
-**Current Version**: 0.3.0
+**Last Updated**: 2026-03-03 (v0.5.0 released)
+**Current Version**: 0.5.0
 
 ---
 
@@ -25,8 +25,8 @@
 | **v0.1.0** | Sprint 1-2 | Foundation — scaffold, models, provisioning, agent, MQTT, basic dashboard | ✅ Released |
 | **v0.2.0** | Sprint 3-4 | Intelligence — topology, baselines, health scoring, workbench, physical deploy | ✅ Released |
 | **v0.3.0** | Sprint 5-6 | Hardening & Resilience — production hardening (P0), mesh recovery, emergency broadcast, heartbeat | ✅ Released |
-| **v0.4.0** | Sprint 7-8 | Intelligence & Analytics — Ollama, geofencing, mesh watchdog, coverage mapping | **Next Up** |
-| **v0.5.0** | Sprint 9-10 | Automation — failover, TAK integration, OTA rollback, mesh relay sync | Planned |
+| **v0.4.0** | Sprint 7-8 | Intelligence & Analytics — Ollama, geofencing, topology viz, coverage mapping | ✅ Released |
+| **v0.5.0** | Sprint 9-10 | Automation — provisioning advisor, lost node AI, env telemetry | ✅ Released |
 | **v1.0.0** | Sprint 11-12 | Integration & GA — iJENN2u, team comms, webhooks, API versioning | Planned |
 | **v1.1.0+** | Ongoing | Advanced — ML predictions, multi-mesh bridging, satellite integration | Backlog |
 
@@ -401,7 +401,7 @@ JennSentry can consume this data to differentiate "internet down" from "truly de
 **Critical for fleet visibility**: Internet-down ≠ dead. This distinction matters.
 
 ### MESH-032: Ollama — Intelligent Provisioning Advisor
-**Priority**: P3 | **Effort**: L | **Status**: Backlog
+**Priority**: P3 | **Effort**: L | **Status**: ✅ Done
 "I'm deploying 5 nodes along a ridgeline. Recommend roles, power settings,
 hop limits, and channel config."
 Ollama analyzes: terrain (if elevation data available), existing topology,
@@ -410,7 +410,7 @@ Outputs: recommended golden config per node, deployment order, expected coverage
 Dashboard: provisioning wizard with AI recommendations.
 
 ### MESH-033: Ollama — Lost Node Reasoning
-**Priority**: P3 | **Effort**: M | **Status**: Backlog
+**Priority**: P3 | **Effort**: M | **Status**: ✅ Done
 "Based on terrain, last GPS heading, battery level at last contact, and
 environmental conditions, where is this node likely to be?"
 Probabilistic location refinement beyond raw GPS data.
@@ -427,15 +427,15 @@ Dashboard: probability heatmap overlay on Lost Node Locator map.
 *Includes MESH-017/018/019 deferred from v0.2.0, plus analytics items.*
 
 ### MESH-017: Ollama Integration — Anomaly Detection (deferred from v0.2.0)
-**Priority**: P2 | **Effort**: L | **Status**: Backlog
+**Priority**: P2 | **Effort**: L | **Status**: ✅ Done
 → See v0.2.0 section for full description.
 
 ### MESH-018: Ollama Integration — Alert Summarization (deferred from v0.2.0)
-**Priority**: P2 | **Effort**: M | **Status**: Backlog
+**Priority**: P2 | **Effort**: M | **Status**: ✅ Done
 → See v0.2.0 section for full description.
 
 ### MESH-019: Geofencing Alerts (deferred from v0.2.0)
-**Priority**: P2 | **Effort**: M | **Status**: Backlog
+**Priority**: P2 | **Effort**: M | **Status**: ✅ Done
 → See v0.2.0 section for full description.
 
 ### MESH-030: Mesh Watchdog (moved from v0.3.0)
@@ -443,11 +443,11 @@ Dashboard: probability heatmap overlay on Lost Node Locator map.
 → See v0.3.0 section for full description.
 
 ### MESH-024: Dashboard — Topology Visualization
-**Priority**: P2 | **Effort**: L | **Status**: Backlog
+**Priority**: P2 | **Effort**: L | **Status**: ✅ Done
 → See v0.2.0 section for full description.
 
 ### MESH-034: Mesh Coverage Mapping
-**Priority**: P2 | **Effort**: XL | **Status**: Backlog
+**Priority**: P2 | **Effort**: XL | **Status**: ✅ Done
 Build signal coverage heatmaps from collected RSSI/SNR data across the fleet.
 As nodes communicate, each packet carries signal quality metadata.
 Aggregate over time → coverage map showing strong/weak/dead zones.
@@ -456,7 +456,7 @@ Dashboard: coverage heatmap overlay on Fleet Map.
 Export: GeoJSON for external GIS tools.
 
 ### MESH-035: Fleet Analytics Dashboard
-**Priority**: P2 | **Effort**: XL | **Status**: Backlog
+**Priority**: P2 | **Effort**: XL | **Status**: ✅ Done
 Historical trends and fleet-wide statistics:
   - Uptime trends (per node, per cluster, fleet-wide)
   - Message volume and channel utilization over time
@@ -495,7 +495,7 @@ Based on topology gaps, coverage dead zones, and terrain data:
 **Requires**: MESH-016 (topology), MESH-034 (coverage mapping).
 
 ### MESH-039: Environmental Telemetry Aggregation
-**Priority**: P2 | **Effort**: M | **Status**: Backlog
+**Priority**: P2 | **Effort**: M | **Status**: ✅ Done
 Meshtastic supports environment sensors: temperature, humidity, pressure, air quality.
 Aggregate environmental data across the fleet for area-wide monitoring.
 Use cases: warehouse climate monitoring, outdoor work site conditions,

@@ -10,7 +10,7 @@ import pytest
 
 from jenn_mesh.agent.remote_admin import RemoteAdminResult
 from jenn_mesh.core.failover_manager import FailoverManager
-from jenn_mesh.db import MeshDatabase
+from jenn_mesh.db import SCHEMA_VERSION, MeshDatabase
 
 
 @pytest.fixture
@@ -522,9 +522,9 @@ class TestDBFailoverMethods:
         assert comps[0]["status"] == "reverted"
         assert comps[0]["reverted_at"] is not None
 
-    def test_schema_version_is_11(self, db: MeshDatabase) -> None:
+    def test_schema_version_current(self, db: MeshDatabase) -> None:
         with db.connection() as conn:
             row = conn.execute(
                 "SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1"
             ).fetchone()
-        assert row["version"] == 11
+        assert row["version"] == SCHEMA_VERSION

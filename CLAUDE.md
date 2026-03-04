@@ -4,10 +4,10 @@
 
 JennMesh is the centralized Meshtastic LoRa radio fleet management service for the JENN Intelligent Ecosystem. It handles initial radio provisioning, firmware tracking, channel/security configuration, MQTT relay setup, fleet health monitoring, and lost node location.
 
-**Version**: 0.3.0
+**Version**: 0.5.0
 **Language**: Python 3.11+
 **Type**: Standalone mesh management service with web dashboard + agent daemon + CLI tools
-**Tests**: 1005 (pytest) — target 80%+
+**Tests**: 1310 (pytest) — target 80%+
 
 ## Architecture
 
@@ -90,7 +90,27 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/cli.py` | CLI entry point with subcommands |
 | `src/jenn_mesh/core/config_rollback.py` | OTA config rollback: snapshot → monitor → auto-rollback |
 | `src/jenn_mesh/dashboard/routes/config_rollback.py` | 4 API endpoints (snapshots, snapshot detail, manual rollback, status) |
-| `src/jenn_mesh/db.py` | SQLite WAL schema v11 (+ crdt_sync_queue, crdt_sync_fragments, crdt_sync_log) |
+| `src/jenn_mesh/inference/ollama_client.py` | Async Ollama wrapper (chat, structured output, 4 feature methods) |
+| `src/jenn_mesh/core/anomaly_detector.py` | Ollama anomaly detection + deterministic fallback |
+| `src/jenn_mesh/core/alert_summarizer.py` | Ollama alert summarization (fleet + per-node) |
+| `src/jenn_mesh/core/geofencing.py` | GeofencingManager — circle/polygon fences, breach detection |
+| `src/jenn_mesh/core/coverage_mapper.py` | CoverageMapper — RSSI heatmap grid, dead zones, GeoJSON export |
+| `src/jenn_mesh/core/fleet_analytics.py` | FleetAnalytics — trends, message volume, battery health |
+| `src/jenn_mesh/models/geofence.py` | GeoFence, GeoFenceEvent, GeoFenceCheck models |
+| `src/jenn_mesh/models/coverage.py` | CoverageSample, CoverageGrid, CoverageHeatmap models |
+| `src/jenn_mesh/dashboard/routes/geofencing.py` | 6 API endpoints (CRUD + breaches) |
+| `src/jenn_mesh/dashboard/routes/anomaly.py` | 4 API endpoints (node, fleet, history, status) |
+| `src/jenn_mesh/dashboard/routes/alert_summary.py` | 3 API endpoints (fleet summary, per-node, status) |
+| `src/jenn_mesh/dashboard/routes/coverage.py` | 4 API endpoints (heatmap, dead-zones, stats, export) |
+| `src/jenn_mesh/dashboard/routes/analytics.py` | 5 API endpoints (uptime, battery, alerts, messages, summary) |
+| `src/jenn_mesh/core/provisioning_advisor.py` | Ollama deployment advisor + deterministic fallback |
+| `src/jenn_mesh/core/lost_node_reasoner.py` | Ollama lost node reasoning (GPS, battery, topology context) |
+| `src/jenn_mesh/core/env_telemetry.py` | EnvTelemetryManager — threshold alerts, fleet summary |
+| `src/jenn_mesh/models/env_telemetry.py` | EnvReading, EnvThreshold, EnvAlert models |
+| `src/jenn_mesh/dashboard/routes/provisioning_advisor.py` | 2 API endpoints (recommend, status) |
+| `src/jenn_mesh/dashboard/routes/lost_node_ai.py` | 2 API endpoints (ai-reasoning, status) |
+| `src/jenn_mesh/dashboard/routes/env_telemetry.py` | 5 API endpoints (node history, fleet summary, thresholds, alerts) |
+| `src/jenn_mesh/db.py` | SQLite WAL schema v13 (25 tables, ~100 DB methods) |
 | `configs/*.yaml` | Golden Meshtastic config templates per device role |
 | `deploy/systemd/*.service` | 4 systemd unit files (broker, dashboard, agent, sentry) |
 | `deploy/scripts/install.sh` | 9-phase idempotent installer for ARM64 Linux |
@@ -490,6 +510,87 @@ Gateway nodes with internet relay CRDT sync between Jenn Production and offline 
 - **Content stripping** — `data` fields removed for LoRa; metadata-only; backfill on TCP reconnect
 - **CRC-16/CCITT** — per-fragment integrity; NACK + retransmit on mismatch (max 3 retries)
 - **4 new AlertType values**: sync_relay_started, sync_relay_completed, sync_relay_failed, sync_sv_mismatch
+
+## v0.4.0 — Intelligence & Analytics
+
+### Ollama Integration (`src/jenn_mesh/inference/ollama_client.py`)
+- **Optional dependency**: `ollama>=0.4.0` in `[ollama]` extra group
+- **Shared client**: `OllamaClient` used by 4 features (anomaly, summarization, provisioning advisor, lost node reasoning)
+- **Config**: `OLLAMA_HOST` (default `http://localhost:11434`), `OLLAMA_MODEL` (default `qwen3:4b`)
+- **Graceful degradation**: All features fall back to deterministic logic when Ollama unavailable
+- Methods: `chat()`, `chat_json()`, `analyze_anomaly()`, `summarize_alerts()`, `advise_provisioning()`, `reason_lost_node()`
+
+### Anomaly Detection (MESH-017, `src/jenn_mesh/core/anomaly_detector.py`)
+- Ollama-powered telemetry anomaly analysis using baseline deviations
+- Fleet-wide anomaly scanning with `analyze_fleet()`
+- 4 API endpoints: `GET /api/v1/anomaly/{node_id}`, `/anomaly/fleet`, `/anomaly/history`, `/anomaly/status`
+
+### Alert Summarization (MESH-018, `src/jenn_mesh/core/alert_summarizer.py`)
+- Ollama collapses active alerts into human-readable summaries
+- Per-node and fleet-wide summaries with topology context
+- 3 API endpoints: `GET /api/v1/alerts/summary`, `/alerts/summary/{node_id}`, `/alerts/summary/status`
+
+### Geofencing (MESH-019, `src/jenn_mesh/core/geofencing.py`)
+- Circle (Haversine) and polygon (ray-casting) fence types
+- Trigger modes: entry, exit, or both
+- Node-filtered fences (apply to specific nodes or all)
+- 6 API endpoints: `POST/GET/PUT/DELETE /api/v1/geofences`, `GET /geofences/breaches`
+- Schema v12: `geofences` table + 5 CRUD methods
+
+### Topology Visualization (MESH-024)
+- D3.js force-directed interactive graph at `/topology`
+- Color coding: online (teal `#0D7377`), offline (red `#DC2626`), degraded (amber `#D97706`)
+- Edge thickness proportional to SNR; SPOF pulsing red ring; click-to-inspect sidebar
+- Uses existing `GET /api/v1/topology` API (no new endpoints needed)
+
+### Coverage Mapping (MESH-034, `src/jenn_mesh/core/coverage_mapper.py`)
+- Aggregates RSSI observations into heatmap grid cells (configurable resolution)
+- Dead zone detection, GeoJSON export for external GIS tools
+- Leaflet.js heatmap overlay on dashboard
+- 4 API endpoints: `GET /api/v1/coverage/heatmap`, `/coverage/dead-zones`, `/coverage/stats`, `/coverage/export`
+- Schema v12: `coverage_samples` table + 5 CRUD methods
+
+### Fleet Analytics (MESH-035, `src/jenn_mesh/core/fleet_analytics.py`)
+- Uptime trends, battery trends, alert frequency, message volume, fleet growth
+- SVG sparklines (same pattern as JennSentry)
+- 5 API endpoints: `GET /api/v1/analytics/uptime`, `/analytics/battery`, `/analytics/alerts`, `/analytics/messages`, `/analytics/summary`
+
+### Schema v12 Additions
+- `geofences` table (circle/polygon, center/radius/polygon_json, trigger_on, node_filter)
+- `coverage_samples` table (from_node, to_node, lat, lon, rssi, snr)
+- 10 new DB methods across both tables
+- 6 new AlertType values: anomaly_detected, geofence_breach, geofence_dwell, coverage_gap, coverage_degraded, env_threshold_exceeded
+
+## v0.5.0 — Provisioning, Lost Node AI, Env Telemetry
+
+### Provisioning Advisor (MESH-032, `src/jenn_mesh/core/provisioning_advisor.py`)
+- Ollama-powered deployment recommendations with deterministic fallback
+- Input: deployment context (terrain, num_nodes, power_source)
+- Output: recommended roles (~30% routers), power settings, channel config, deployment order, warnings
+- Terrain-aware: urban (ShortFast), mountainous (VeryLongSlow), forest (MediumSlow), indoor (ShortTurbo)
+- 2 API endpoints: `POST /api/v1/advisor/recommend`, `GET /api/v1/advisor/status`
+
+### Lost Node Reasoning (MESH-033, `src/jenn_mesh/core/lost_node_reasoner.py`)
+- Ollama-powered location reasoning with deterministic fallback
+- Builds context from: GPS history, battery level, topology edges, time since contact, node role
+- Compass-direction movement analysis from position history
+- Confidence levels: high/medium/low based on data recency and availability
+- 2 API endpoints: `GET /api/v1/locate/{node_id}/ai-reasoning`, `GET /api/v1/locate/ai/status`
+
+### Environmental Telemetry (MESH-039, `src/jenn_mesh/core/env_telemetry.py`)
+- Ingest Meshtastic environment sensors: temperature, humidity, pressure, air quality
+- Configurable thresholds per metric → `ENV_THRESHOLD_EXCEEDED` fleet alerts
+- Default thresholds: temp (-20°C to 60°C), humidity (0-100%), pressure (870-1084 hPa), air quality (max 300)
+- Fleet-wide summary with per-node latest readings
+- 5 API endpoints: `GET /api/v1/environment/{node_id}`, `/environment/fleet/summary`, `GET/PUT /environment/thresholds`, `GET /environment/alerts`
+- Models: `EnvReading`, `EnvThreshold`, `EnvAlert` in `src/jenn_mesh/models/env_telemetry.py`
+
+### Schema v13 Additions
+- `env_telemetry` table (node_id, temperature, humidity, pressure, air_quality, timestamp)
+- 5 new DB methods: `add_env_reading`, `get_env_readings`, `get_fleet_env_summary`, `get_env_alerts`, `prune_old_env_readings`
+
+### Route Ordering Pattern (IMPORTANT)
+For routes with path parameters (e.g., `/environment/{node_id}`), specific routes MUST be registered before parameterized routes to avoid FastAPI capturing literals like "thresholds" as node_id values. Example in `env_telemetry.py`: `/environment/fleet/summary` and `/environment/thresholds` are defined before `/environment/{node_id}`.
 
 ## CLI Commands
 

@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from jenn_mesh.core.sync_relay_manager import SyncRelayManager
-from jenn_mesh.db import MeshDatabase
+from jenn_mesh.db import SCHEMA_VERSION, MeshDatabase
 from jenn_mesh.models.sync_relay import (
     compute_crc16,
     format_sync_ack,
@@ -839,12 +839,12 @@ class TestGetNodeSyncHistory:
 
 
 class TestSchemaV11:
-    def test_schema_version_is_11(self, db: MeshDatabase) -> None:
+    def test_schema_version_current(self, db: MeshDatabase) -> None:
         with db.connection() as conn:
             row = conn.execute(
                 "SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1"
             ).fetchone()
-        assert row["version"] == 11
+        assert row["version"] == SCHEMA_VERSION
 
     def test_sync_queue_table_exists(self, db: MeshDatabase) -> None:
         entry_id = db.create_sync_queue_entry(

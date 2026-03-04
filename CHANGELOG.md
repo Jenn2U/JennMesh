@@ -5,6 +5,31 @@ All notable changes to JennMesh will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-03-03
+
+### Added
+
+- **Ollama — Intelligent Provisioning Advisor** (MESH-032): `POST /api/v1/advisor/recommend` — AI-powered deployment recommendations with deterministic fallback; terrain-aware channel config, power-source-based TX power, ~30% router ratio for large fleets
+- **Ollama — Lost Node Reasoning** (MESH-033): `GET /api/v1/locate/{node_id}/ai-reasoning` — probabilistic location analysis using GPS history, battery level, movement vector, topology edges; compass-direction movement analysis; search recommendations
+- **Environmental Telemetry Aggregation** (MESH-039): 5 API endpoints (`/environment/*`) — ingest temp, humidity, pressure, air quality from Meshtastic sensors; configurable thresholds → `ENV_THRESHOLD_EXCEEDED` fleet alerts; fleet-wide summary with per-node latest readings
+- DB schema v13: `env_telemetry` table with 5 CRUD methods
+- 52 new tests (1,310 total)
+
+## [0.4.0] - 2026-03-03
+
+### Added
+
+- **Ollama Integration Foundation**: `OllamaClient` async wrapper (`inference/ollama_client.py`) — shared across anomaly detection, alert summarization, provisioning advisor, and lost node reasoning; configurable via `OLLAMA_HOST` / `OLLAMA_MODEL` env vars; graceful degradation when Ollama unavailable
+- **Anomaly Detection** (MESH-017): `AnomalyDetector` uses Ollama to analyze telemetry deviations against baselines; fleet-wide anomaly scanning; 4 API endpoints (`/anomaly/*`)
+- **Alert Summarization** (MESH-018): `AlertSummarizer` collapses active alerts into AI-generated summaries; per-node and fleet-wide summaries; 3 API endpoints (`/alerts/summary/*`)
+- **Geofencing Alerts** (MESH-019): `GeofencingManager` with point-in-circle (Haversine) and point-in-polygon (ray casting) checks; circle and polygon fence types; entry/exit/both triggers; 6 API endpoints (`/geofences/*`)
+- **Topology Visualization** (MESH-024): Interactive D3.js force-directed graph at `/topology`; color-coded online/offline/degraded nodes; edge thickness proportional to SNR; SPOF pulsing highlight; click-to-inspect sidebar
+- **Mesh Coverage Mapping** (MESH-034): `CoverageMapper` aggregates RSSI observations into heatmap grid cells; dead zone detection; GeoJSON export; Leaflet heatmap overlay; 4 API endpoints (`/coverage/*`)
+- **Fleet Analytics Dashboard** (MESH-035): `FleetAnalytics` with uptime trends, battery trends, alert frequency, message volume, fleet growth; SVG sparklines; 5 API endpoints (`/analytics/*`)
+- DB schema v12: `geofences` + `coverage_samples` tables with 10 CRUD methods; 6 new AlertType values
+- `[ollama]` extra dependency group in pyproject.toml
+- 406 new tests (1,258 at v0.4.0 completion, before v0.5.0 additions)
+
 ## [0.3.0] - 2026-03-03
 
 ### Added

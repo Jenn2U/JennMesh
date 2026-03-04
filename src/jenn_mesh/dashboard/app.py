@@ -139,6 +139,54 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
             app.state.sync_relay_manager = SyncRelayManager(db=db)
         except Exception:
             pass  # graceful degradation — sync relay features unavailable
+        try:
+            from jenn_mesh.core.geofencing import GeofencingManager
+
+            app.state.geofencing_manager = GeofencingManager(db=db)
+        except Exception:
+            pass  # graceful degradation — geofencing features unavailable
+        try:
+            from jenn_mesh.core.anomaly_detector import AnomalyDetector
+
+            app.state.anomaly_detector = AnomalyDetector(db=db)
+        except Exception:
+            pass  # graceful degradation — anomaly detection features unavailable
+        try:
+            from jenn_mesh.core.alert_summarizer import AlertSummarizer
+
+            app.state.alert_summarizer = AlertSummarizer(db=db)
+        except Exception:
+            pass  # graceful degradation — alert summarization unavailable
+        try:
+            from jenn_mesh.core.coverage_mapper import CoverageMapper
+
+            app.state.coverage_mapper = CoverageMapper(db=db)
+        except Exception:
+            pass  # graceful degradation — coverage mapping unavailable
+        try:
+            from jenn_mesh.core.fleet_analytics import FleetAnalytics
+
+            app.state.fleet_analytics = FleetAnalytics(db=db)
+        except Exception:
+            pass  # graceful degradation — fleet analytics unavailable
+        try:
+            from jenn_mesh.core.provisioning_advisor import ProvisioningAdvisor
+
+            app.state.provisioning_advisor = ProvisioningAdvisor(db=db)
+        except Exception:
+            pass  # graceful degradation — provisioning advisor unavailable
+        try:
+            from jenn_mesh.core.lost_node_reasoner import LostNodeReasoner
+
+            app.state.lost_node_reasoner = LostNodeReasoner(db=db)
+        except Exception:
+            pass  # graceful degradation — lost node reasoning unavailable
+        try:
+            from jenn_mesh.core.env_telemetry import EnvTelemetryManager
+
+            app.state.env_telemetry_manager = EnvTelemetryManager(db=db)
+        except Exception:
+            pass  # graceful degradation — env telemetry unavailable
         app.state.startup_time = datetime.now(timezone.utc)
 
     # --- Error handlers ---
@@ -179,6 +227,16 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.watchdog import router as watchdog_router
     from jenn_mesh.dashboard.routes.config_rollback import router as config_rollback_router
     from jenn_mesh.dashboard.routes.sync_relay import router as sync_relay_router
+    from jenn_mesh.dashboard.routes.geofencing import router as geofencing_router
+    from jenn_mesh.dashboard.routes.anomaly import router as anomaly_router
+    from jenn_mesh.dashboard.routes.alert_summary import router as alert_summary_router
+    from jenn_mesh.dashboard.routes.coverage import router as coverage_router
+    from jenn_mesh.dashboard.routes.analytics import router as analytics_router
+    from jenn_mesh.dashboard.routes.provisioning_advisor import (
+        router as provisioning_advisor_router,
+    )
+    from jenn_mesh.dashboard.routes.lost_node_ai import router as lost_node_ai_router
+    from jenn_mesh.dashboard.routes.env_telemetry import router as env_telemetry_router
 
     app.include_router(health_router)
     # Heartbeat router before fleet router — /fleet/mesh-status must match
@@ -200,8 +258,18 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(watchdog_router, prefix="/api/v1")
     app.include_router(config_rollback_router, prefix="/api/v1")
     app.include_router(sync_relay_router, prefix="/api/v1")
+    app.include_router(geofencing_router, prefix="/api/v1")
+    app.include_router(anomaly_router, prefix="/api/v1")
+    app.include_router(alert_summary_router, prefix="/api/v1")
+    app.include_router(coverage_router, prefix="/api/v1")
+    app.include_router(analytics_router, prefix="/api/v1")
+    app.include_router(provisioning_advisor_router, prefix="/api/v1")
+    # lost_node_ai_router before locator_router: /locate/ai/status must match
+    # before /locate/{node_id} would capture "ai" as a node_id
+    app.include_router(lost_node_ai_router, prefix="/api/v1")
+    app.include_router(env_telemetry_router, prefix="/api/v1")
 
-    # Dashboard HTML page
+    # Dashboard HTML pages
     @app.get("/")
     async def dashboard_home(request: Request) -> object:
         """Serve the main dashboard page."""
@@ -216,6 +284,23 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
                 "version": __version__,
                 "status": "running",
                 "docs": f"{root_path}/docs",
+            }
+        )
+
+    @app.get("/topology")
+    async def topology_page(request: Request) -> object:
+        """Serve the topology visualization page."""
+        topo_template = TEMPLATES_DIR / "topology.html"
+        if topo_template.exists():
+            return templates.TemplateResponse(
+                "topology.html",
+                {"request": request, "version": __version__},
+            )
+        return JSONResponse(
+            {
+                "page": "topology",
+                "message": "Topology visualization template not found",
+                "api": f"{root_path}/api/v1/topology",
             }
         )
 

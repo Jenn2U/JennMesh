@@ -12,7 +12,7 @@ from jenn_mesh.core.mesh_watchdog import (
     MeshWatchdog,
     is_watchdog_enabled,
 )
-from jenn_mesh.db import MeshDatabase
+from jenn_mesh.db import SCHEMA_VERSION, MeshDatabase
 
 # ── Fixtures ──────────────────────────────────────────────────────────
 
@@ -84,12 +84,12 @@ class TestWatchdogRunsDB:
         runs = db.get_recent_watchdog_runs("offline_nodes", limit=3)
         assert len(runs) == 3
 
-    def test_schema_version_is_11(self, db: MeshDatabase) -> None:
+    def test_schema_version_current(self, db: MeshDatabase) -> None:
         with db.connection() as conn:
             row = conn.execute(
                 "SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1"
             ).fetchone()
-        assert row["version"] == 11
+        assert row["version"] == SCHEMA_VERSION
 
 
 # ── Constructor / configuration ───────────────────────────────────────
