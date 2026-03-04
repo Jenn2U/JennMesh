@@ -132,7 +132,7 @@ class OllamaClient:
                 )
             return self._available
         except Exception as exc:
-            logger.warning("Ollama server not reachable at %s: %s", self._host, exc)
+            logger.warning("Ollama server not reachable: %s", type(exc).__name__)
             self._available = False
             return False
 
@@ -164,7 +164,7 @@ class OllamaClient:
             # Strip <think> blocks from qwen3 reasoning models
             return _strip_think_tags(content)
         except Exception as exc:
-            logger.error("Ollama chat failed: %s", exc)
+            logger.error("Ollama chat failed: %s", type(exc).__name__)
             return None
 
     async def chat_json(self, system_prompt: str, user_message: str) -> Optional[dict[str, Any]]:
@@ -175,7 +175,7 @@ class OllamaClient:
         try:
             return json.loads(_extract_json(raw))
         except (json.JSONDecodeError, ValueError) as exc:
-            logger.warning("Ollama returned non-JSON response: %s — %s", exc, raw[:200])
+            logger.warning("Ollama returned non-JSON response: %s", type(exc).__name__)
             return None
 
     # ── Feature-specific methods ─────────────────────────────────────

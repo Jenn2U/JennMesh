@@ -96,7 +96,11 @@ class AlertSummarizer:
             try:
                 ai_summary = await self._ollama.summarize_alerts(alerts)
             except Exception as exc:
-                logger.warning("Ollama node summary failed for %s: %s", node_id, exc)
+                logger.warning(
+                    "Ollama node summary failed for %s: %s",
+                    node_id.replace("\n", ""),
+                    type(exc).__name__,
+                )
 
         if ai_summary:
             return {

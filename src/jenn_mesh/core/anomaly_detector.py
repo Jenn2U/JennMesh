@@ -109,7 +109,11 @@ class AnomalyDetector:
                 if report is not None:
                     reports.append(report)
             except Exception as exc:
-                logger.warning("Fleet anomaly analysis failed for %s: %s", node_id, exc)
+                logger.warning(
+                    "Fleet anomaly analysis failed for %s: %s",
+                    node_id.replace("\n", ""),
+                    type(exc).__name__,
+                )
 
         return reports
 
