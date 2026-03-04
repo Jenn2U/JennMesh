@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator, Optional
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 SCHEMA_SQL = """
 -- Device registry: every known radio in the fleet
@@ -392,6 +392,19 @@ CREATE TABLE IF NOT EXISTS coverage_samples (
 CREATE INDEX IF NOT EXISTS idx_coverage_location ON coverage_samples(latitude, longitude);
 CREATE INDEX IF NOT EXISTS idx_coverage_time ON coverage_samples(timestamp DESC);
 
+-- Environmental telemetry: temperature, humidity, pressure, air quality
+CREATE TABLE IF NOT EXISTS env_telemetry (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id     TEXT NOT NULL,
+    temperature REAL,
+    humidity    REAL,
+    pressure    REAL,
+    air_quality INTEGER,
+    timestamp   TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (node_id) REFERENCES devices(node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_env_node_time ON env_telemetry(node_id, timestamp DESC);
+
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version         INTEGER NOT NULL,
@@ -441,6 +454,7 @@ class MeshDatabase:
                     # v10 → v11: crdt_sync_queue, crdt_sync_fragments, crdt_sync_log
                     #            (CREATE IF NOT EXISTS only)
                     # v11 → v12: geofences, coverage_samples (CREATE IF NOT EXISTS only)
+                    # v12 → v13: env_telemetry (CREATE IF NOT EXISTS only)
                     if current_version < 4:
                         # Add new columns (safe: ALTER TABLE ADD COLUMN is idempotent-ish,
                         # but we guard with version check to avoid "duplicate column" errors)
@@ -720,14 +734,14 @@ class MeshDatabase:
                 rows = conn.execute(
                     """SELECT * FROM provisioning_log
                        WHERE node_id = ? AND action = ?
-                       ORDER BY timestamp DESC LIMIT ?""",
+                       ORDER BY timestamp DESC, id DESC LIMIT ?""",
                     (node_id, action_filter, limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
                     """SELECT * FROM provisioning_log
                        WHERE node_id = ?
-                       ORDER BY timestamp DESC LIMIT ?""",
+                       ORDER BY timestamp DESC, id DESC LIMIT ?""",
                     (node_id, limit),
                 ).fetchall()
             return [dict(r) for r in rows]
@@ -1931,7 +1945,7 @@ class MeshDatabase:
                 """SELECT * FROM coverage_samples
                    WHERE latitude BETWEEN ? AND ?
                    AND longitude BETWEEN ? AND ?
-                   ORDER BY timestamp DESC LIMIT ?""",
+                   ORDER BY timestamp DESC, id DESC LIMIT ?""",
                 (min_lat, max_lat, min_lon, max_lon, limit),
             ).fetchall()
             return [dict(r) for r in rows]
@@ -1953,7 +1967,7 @@ class MeshDatabase:
             rows = conn.execute(
                 """SELECT * FROM coverage_samples
                    WHERE from_node = ? OR to_node = ?
-                   ORDER BY timestamp DESC LIMIT ?""",
+                   ORDER BY timestamp DESC, id DESC LIMIT ?""",
                 (node_id, node_id, limit),
             ).fetchall()
             return [dict(r) for r in rows]
@@ -1963,6 +1977,93 @@ class MeshDatabase:
         with self.connection() as conn:
             cursor = conn.execute(
                 """DELETE FROM coverage_samples
+                   WHERE timestamp < datetime('now', ?)""",
+                (f"-{days} days",),
+            )
+            return cursor.rowcount
+
+    # ── Environmental Telemetry (v0.5.0 / Schema v13) ─────────────
+
+    def add_env_reading(
+        self,
+        node_id: str,
+        temperature: Optional[float] = None,
+        humidity: Optional[float] = None,
+        pressure: Optional[float] = None,
+        air_quality: Optional[int] = None,
+        timestamp: Optional[str] = None,
+    ) -> int:
+        """Record an environmental sensor reading. Returns the reading ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO env_telemetry
+                   (node_id, temperature, humidity, pressure, air_quality, timestamp)
+                   VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))""",
+                (node_id, temperature, humidity, pressure, air_quality, timestamp),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_env_readings(
+        self,
+        node_id: str,
+        since: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Get environmental readings for a node, optionally filtered by time."""
+        with self.connection() as conn:
+            if since:
+                rows = conn.execute(
+                    """SELECT * FROM env_telemetry
+                       WHERE node_id = ? AND timestamp >= ?
+                       ORDER BY timestamp DESC, id DESC LIMIT ?""",
+                    (node_id, since, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT * FROM env_telemetry
+                       WHERE node_id = ?
+                       ORDER BY timestamp DESC, id DESC LIMIT ?""",
+                    (node_id, limit),
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_fleet_env_summary(self) -> dict:
+        """Get fleet-wide environmental summary (latest reading per node)."""
+        with self.connection() as conn:
+            rows = conn.execute("""SELECT e.*
+                   FROM env_telemetry e
+                   INNER JOIN (
+                       SELECT node_id, MAX(timestamp) as max_ts
+                       FROM env_telemetry
+                       GROUP BY node_id
+                   ) latest ON e.node_id = latest.node_id
+                   AND e.timestamp = latest.max_ts""").fetchall()
+            readings = [dict(r) for r in rows]
+
+            # Compute fleet-wide aggregates
+            temps = [r["temperature"] for r in readings if r.get("temperature") is not None]
+            humidities = [r["humidity"] for r in readings if r.get("humidity") is not None]
+            pressures = [r["pressure"] for r in readings if r.get("pressure") is not None]
+
+            return {
+                "node_count": len(readings),
+                "readings": readings,
+                "avg_temperature": round(sum(temps) / len(temps), 1) if temps else None,
+                "avg_humidity": round(sum(humidities) / len(humidities), 1) if humidities else None,
+                "avg_pressure": round(sum(pressures) / len(pressures), 1) if pressures else None,
+            }
+
+    def get_env_alerts(self, limit: int = 50) -> list[dict]:
+        """Get recent environmental threshold alerts."""
+        alerts = self.get_active_alerts()
+        env_alerts = [a for a in alerts if a.get("alert_type") == "env_threshold_exceeded"]
+        return env_alerts[:limit]
+
+    def prune_old_env_readings(self, days: int = 30) -> int:
+        """Delete env telemetry readings older than N days. Returns count deleted."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """DELETE FROM env_telemetry
                    WHERE timestamp < datetime('now', ?)""",
                 (f"-{days} days",),
             )

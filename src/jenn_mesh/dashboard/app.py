@@ -169,6 +169,24 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
             app.state.fleet_analytics = FleetAnalytics(db=db)
         except Exception:
             pass  # graceful degradation — fleet analytics unavailable
+        try:
+            from jenn_mesh.core.provisioning_advisor import ProvisioningAdvisor
+
+            app.state.provisioning_advisor = ProvisioningAdvisor(db=db)
+        except Exception:
+            pass  # graceful degradation — provisioning advisor unavailable
+        try:
+            from jenn_mesh.core.lost_node_reasoner import LostNodeReasoner
+
+            app.state.lost_node_reasoner = LostNodeReasoner(db=db)
+        except Exception:
+            pass  # graceful degradation — lost node reasoning unavailable
+        try:
+            from jenn_mesh.core.env_telemetry import EnvTelemetryManager
+
+            app.state.env_telemetry_manager = EnvTelemetryManager(db=db)
+        except Exception:
+            pass  # graceful degradation — env telemetry unavailable
         app.state.startup_time = datetime.now(timezone.utc)
 
     # --- Error handlers ---
@@ -214,6 +232,11 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.alert_summary import router as alert_summary_router
     from jenn_mesh.dashboard.routes.coverage import router as coverage_router
     from jenn_mesh.dashboard.routes.analytics import router as analytics_router
+    from jenn_mesh.dashboard.routes.provisioning_advisor import (
+        router as provisioning_advisor_router,
+    )
+    from jenn_mesh.dashboard.routes.lost_node_ai import router as lost_node_ai_router
+    from jenn_mesh.dashboard.routes.env_telemetry import router as env_telemetry_router
 
     app.include_router(health_router)
     # Heartbeat router before fleet router — /fleet/mesh-status must match
@@ -240,6 +263,11 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(alert_summary_router, prefix="/api/v1")
     app.include_router(coverage_router, prefix="/api/v1")
     app.include_router(analytics_router, prefix="/api/v1")
+    app.include_router(provisioning_advisor_router, prefix="/api/v1")
+    # lost_node_ai_router before locator_router: /locate/ai/status must match
+    # before /locate/{node_id} would capture "ai" as a node_id
+    app.include_router(lost_node_ai_router, prefix="/api/v1")
+    app.include_router(env_telemetry_router, prefix="/api/v1")
 
     # Dashboard HTML pages
     @app.get("/")
