@@ -133,12 +133,12 @@ class TestConfigSnapshotDB:
         recent = db.get_recent_snapshots(limit=10)
         assert len(recent) == 3
 
-    def test_schema_version_is_10(self, db: MeshDatabase) -> None:
+    def test_schema_version_is_11(self, db: MeshDatabase) -> None:
         with db.connection() as conn:
             row = conn.execute(
                 "SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1"
             ).fetchone()
-        assert row["version"] == 10
+        assert row["version"] == 11
 
 
 # ── snapshot_before_push ─────────────────────────────────────────────

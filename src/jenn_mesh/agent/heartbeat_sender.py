@@ -50,6 +50,7 @@ class HeartbeatSender:
         uptime_seconds: int,
         services: str = "",
         battery: int = -1,
+        sv_hash: str = "",
     ) -> str:
         """Build a heartbeat wire-format message.
 
@@ -57,12 +58,19 @@ class HeartbeatSender:
             uptime_seconds: Agent uptime in seconds.
             services: Comma-separated service statuses (e.g., "edge:ok,mqtt:down").
             battery: Battery percentage (0-100) or -1 if unknown.
+            sv_hash: Optional 8-char state vector hash for CRDT sync relay (MESH-027).
+                     When present, gateway nodes compare it against Production to detect
+                     divergence. Backward compatible: old parsers ignore the extra field.
 
         Returns:
-            Wire-format string: HEARTBEAT|{nodeId}|{uptime}|{services}|{battery}|{timestamp}
+            Wire-format string:
+            HEARTBEAT|{nodeId}|{uptime}|{services}|{battery}|{ts}[|{sv_hash}]
         """
         timestamp = datetime.utcnow().isoformat()
-        return f"HEARTBEAT|{self.node_id}|{uptime_seconds}|{services}|{battery}|{timestamp}"
+        msg = f"HEARTBEAT|{self.node_id}|{uptime_seconds}|{services}|{battery}|{timestamp}"
+        if sv_hash:
+            msg += f"|{sv_hash}"
+        return msg
 
     def should_send(self) -> bool:
         """Check if enough time has elapsed since the last heartbeat."""
@@ -73,12 +81,13 @@ class HeartbeatSender:
         uptime_seconds: int,
         services: str = "",
         battery: int = -1,
+        sv_hash: str = "",
     ) -> bool:
         """Build and send a heartbeat message over the radio.
 
         Returns True if the message was sent successfully.
         """
-        message = self.build_message(uptime_seconds, services, battery)
+        message = self.build_message(uptime_seconds, services, battery, sv_hash=sv_hash)
         try:
             result = self.bridge.send_text(message)  # type: ignore[attr-defined]
             if result:
@@ -97,6 +106,7 @@ class HeartbeatSender:
         uptime_seconds: int,
         services: str = "",
         battery: int = -1,
+        sv_hash: str = "",
     ) -> bool:
         """Send heartbeat only if the interval has elapsed.
 
@@ -105,7 +115,7 @@ class HeartbeatSender:
         """
         if not self.should_send():
             return False
-        return self.send(uptime_seconds, services, battery)
+        return self.send(uptime_seconds, services, battery, sv_hash=sv_hash)
 
     @property
     def send_count(self) -> int:

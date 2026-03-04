@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator, Optional
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 SCHEMA_SQL = """
 -- Device registry: every known radio in the fleet
@@ -300,6 +300,67 @@ CREATE INDEX IF NOT EXISTS idx_config_snapshots_node
 CREATE INDEX IF NOT EXISTS idx_config_snapshots_status
     ON config_snapshots(status);
 
+-- CRDT sync queue: pending sync payloads to fragment and send over LoRa
+CREATE TABLE IF NOT EXISTS crdt_sync_queue (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id         TEXT NOT NULL,
+    session_id      TEXT NOT NULL,
+    direction       TEXT NOT NULL,
+    priority        INTEGER NOT NULL DEFAULT 2,
+    payload_json    TEXT NOT NULL,
+    total_fragments INTEGER,
+    acked_fragments INTEGER DEFAULT 0,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at    TEXT,
+    error           TEXT,
+    FOREIGN KEY (node_id) REFERENCES devices(node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_sync_queue_status
+    ON crdt_sync_queue(status, priority);
+CREATE INDEX IF NOT EXISTS idx_sync_queue_node
+    ON crdt_sync_queue(node_id, created_at DESC);
+
+-- CRDT sync fragments: individual LoRa-sized chunks of sync payloads
+CREATE TABLE IF NOT EXISTS crdt_sync_fragments (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id      TEXT NOT NULL,
+    seq             INTEGER NOT NULL,
+    total           INTEGER NOT NULL,
+    direction       TEXT NOT NULL,
+    payload_b64     TEXT NOT NULL,
+    crc16           TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    send_attempts   INTEGER DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    acked_at        TEXT,
+    UNIQUE(session_id, seq, direction)
+);
+CREATE INDEX IF NOT EXISTS idx_sync_fragments_session
+    ON crdt_sync_fragments(session_id, seq);
+
+-- CRDT sync log: audit trail for sync exchanges
+CREATE TABLE IF NOT EXISTS crdt_sync_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id         TEXT NOT NULL,
+    session_id      TEXT,
+    direction       TEXT NOT NULL,
+    items_synced    INTEGER DEFAULT 0,
+    items_failed    INTEGER DEFAULT 0,
+    bytes_sent      INTEGER DEFAULT 0,
+    bytes_received  INTEGER DEFAULT 0,
+    duration_ms     INTEGER,
+    sv_hash_before  TEXT,
+    sv_hash_after   TEXT,
+    status          TEXT NOT NULL DEFAULT 'started',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at    TEXT,
+    error           TEXT,
+    FOREIGN KEY (node_id) REFERENCES devices(node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_sync_log_node
+    ON crdt_sync_log(node_id, created_at DESC);
+
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version         INTEGER NOT NULL,
@@ -346,6 +407,8 @@ class MeshDatabase:
                     # v7 → v8: failover_events + failover_compensations (CREATE IF NOT EXISTS only)
                     # v8 → v9: watchdog_runs table (CREATE IF NOT EXISTS only)
                     # v9 → v10: config_snapshots table (CREATE IF NOT EXISTS only)
+                    # v10 → v11: crdt_sync_queue, crdt_sync_fragments, crdt_sync_log
+                    #            (CREATE IF NOT EXISTS only)
                     if current_version < 4:
                         # Add new columns (safe: ALTER TABLE ADD COLUMN is idempotent-ish,
                         # but we guard with version check to avoid "duplicate column" errors)
@@ -1546,5 +1609,175 @@ class MeshDatabase:
                 """SELECT * FROM config_snapshots
                    ORDER BY created_at DESC LIMIT ?""",
                 (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ── CRDT sync queue ─────────────────────────────────────────────
+
+    def create_sync_queue_entry(
+        self,
+        node_id: str,
+        session_id: str,
+        direction: str,
+        payload_json: str,
+        *,
+        priority: int = 2,
+        total_fragments: Optional[int] = None,
+    ) -> int:
+        """Create a sync queue entry for a pending sync payload. Returns the entry ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO crdt_sync_queue
+                   (node_id, session_id, direction, priority, payload_json, total_fragments)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (node_id, session_id, direction, priority, payload_json, total_fragments),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def update_sync_queue_entry(self, entry_id: int, **kwargs: object) -> None:
+        """Update sync queue entry fields by ID."""
+        if not kwargs:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in kwargs)
+        values = list(kwargs.values()) + [entry_id]
+        with self.connection() as conn:
+            conn.execute(
+                f"UPDATE crdt_sync_queue SET {set_clause} WHERE id = ?",
+                values,
+            )
+
+    def get_sync_queue_entry(self, entry_id: int) -> Optional[dict]:
+        """Fetch a single sync queue entry by ID."""
+        with self.connection() as conn:
+            row = conn.execute("SELECT * FROM crdt_sync_queue WHERE id = ?", (entry_id,)).fetchone()
+            return dict(row) if row else None
+
+    def get_pending_sync_entries(self, node_id: Optional[str] = None) -> list[dict]:
+        """Fetch sync queue entries with status 'pending' or 'sending', ordered by priority."""
+        with self.connection() as conn:
+            if node_id:
+                rows = conn.execute(
+                    """SELECT * FROM crdt_sync_queue
+                       WHERE node_id = ? AND status IN ('pending', 'sending')
+                       ORDER BY priority ASC, created_at ASC""",
+                    (node_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute("""SELECT * FROM crdt_sync_queue
+                       WHERE status IN ('pending', 'sending')
+                       ORDER BY priority ASC, created_at ASC""").fetchall()
+            return [dict(r) for r in rows]
+
+    # ── CRDT sync fragments ─────────────────────────────────────────
+
+    def create_sync_fragment(
+        self,
+        session_id: str,
+        seq: int,
+        total: int,
+        direction: str,
+        payload_b64: str,
+        crc16: str,
+    ) -> int:
+        """Create a sync fragment record. Returns the fragment ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO crdt_sync_fragments
+                   (session_id, seq, total, direction, payload_b64, crc16)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (session_id, seq, total, direction, payload_b64, crc16),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def update_sync_fragment(self, fragment_id: int, **kwargs: object) -> None:
+        """Update sync fragment fields by ID."""
+        if not kwargs:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in kwargs)
+        values = list(kwargs.values()) + [fragment_id]
+        with self.connection() as conn:
+            conn.execute(
+                f"UPDATE crdt_sync_fragments SET {set_clause} WHERE id = ?",
+                values,
+            )
+
+    def get_fragments_for_session(
+        self, session_id: str, direction: Optional[str] = None
+    ) -> list[dict]:
+        """Fetch all fragments for a session, ordered by sequence number."""
+        with self.connection() as conn:
+            if direction:
+                rows = conn.execute(
+                    """SELECT * FROM crdt_sync_fragments
+                       WHERE session_id = ? AND direction = ?
+                       ORDER BY seq ASC""",
+                    (session_id, direction),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT * FROM crdt_sync_fragments
+                       WHERE session_id = ?
+                       ORDER BY seq ASC""",
+                    (session_id,),
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_pending_fragments(self, session_id: str) -> list[dict]:
+        """Fetch unsent/nacked fragments for a session, ordered by sequence."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM crdt_sync_fragments
+                   WHERE session_id = ? AND status IN ('pending', 'nacked')
+                   ORDER BY seq ASC""",
+                (session_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ── CRDT sync log ───────────────────────────────────────────────
+
+    def create_sync_log(
+        self,
+        node_id: str,
+        direction: str,
+        *,
+        session_id: Optional[str] = None,
+        sv_hash_before: Optional[str] = None,
+    ) -> int:
+        """Create a sync log entry. Returns the log entry ID."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO crdt_sync_log
+                   (node_id, direction, session_id, sv_hash_before)
+                   VALUES (?, ?, ?, ?)""",
+                (node_id, direction, session_id, sv_hash_before),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def update_sync_log(self, log_id: int, **kwargs: object) -> None:
+        """Update sync log entry fields by ID."""
+        if not kwargs:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in kwargs)
+        values = list(kwargs.values()) + [log_id]
+        with self.connection() as conn:
+            conn.execute(
+                f"UPDATE crdt_sync_log SET {set_clause} WHERE id = ?",
+                values,
+            )
+
+    def get_sync_log(self, log_id: int) -> Optional[dict]:
+        """Fetch a single sync log entry by ID."""
+        with self.connection() as conn:
+            row = conn.execute("SELECT * FROM crdt_sync_log WHERE id = ?", (log_id,)).fetchone()
+            return dict(row) if row else None
+
+    def get_sync_log_for_node(self, node_id: str, limit: int = 20) -> list[dict]:
+        """Fetch recent sync log entries for a specific node."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM crdt_sync_log
+                   WHERE node_id = ?
+                   ORDER BY created_at DESC LIMIT ?""",
+                (node_id, limit),
             ).fetchall()
             return [dict(r) for r in rows]

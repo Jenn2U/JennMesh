@@ -133,6 +133,12 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
             app.state.mesh_watchdog = MeshWatchdog(db=db)
         except Exception:
             pass  # graceful degradation — watchdog features unavailable
+        try:
+            from jenn_mesh.core.sync_relay_manager import SyncRelayManager
+
+            app.state.sync_relay_manager = SyncRelayManager(db=db)
+        except Exception:
+            pass  # graceful degradation — sync relay features unavailable
         app.state.startup_time = datetime.now(timezone.utc)
 
     # --- Error handlers ---
@@ -172,6 +178,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.failover import router as failover_router
     from jenn_mesh.dashboard.routes.watchdog import router as watchdog_router
     from jenn_mesh.dashboard.routes.config_rollback import router as config_rollback_router
+    from jenn_mesh.dashboard.routes.sync_relay import router as sync_relay_router
 
     app.include_router(health_router)
     # Heartbeat router before fleet router — /fleet/mesh-status must match
@@ -192,6 +199,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(failover_router, prefix="/api/v1")
     app.include_router(watchdog_router, prefix="/api/v1")
     app.include_router(config_rollback_router, prefix="/api/v1")
+    app.include_router(sync_relay_router, prefix="/api/v1")
 
     # Dashboard HTML page
     @app.get("/")

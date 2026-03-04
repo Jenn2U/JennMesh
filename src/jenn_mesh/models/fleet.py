@@ -30,6 +30,10 @@ class AlertType(str, Enum):
     CONFIG_ROLLBACK_TRIGGERED = "config_rollback_triggered"
     CONFIG_ROLLBACK_COMPLETED = "config_rollback_completed"
     CONFIG_ROLLBACK_FAILED = "config_rollback_failed"
+    SYNC_RELAY_STARTED = "sync_relay_started"
+    SYNC_RELAY_COMPLETED = "sync_relay_completed"
+    SYNC_RELAY_FAILED = "sync_relay_failed"
+    SYNC_SV_MISMATCH = "sync_sv_mismatch"
 
 
 class AlertSeverity(str, Enum):
@@ -76,6 +80,10 @@ ALERT_SEVERITY_MAP: dict[AlertType, AlertSeverity] = {
     AlertType.CONFIG_ROLLBACK_TRIGGERED: AlertSeverity.WARNING,
     AlertType.CONFIG_ROLLBACK_COMPLETED: AlertSeverity.INFO,
     AlertType.CONFIG_ROLLBACK_FAILED: AlertSeverity.CRITICAL,
+    AlertType.SYNC_RELAY_STARTED: AlertSeverity.INFO,
+    AlertType.SYNC_RELAY_COMPLETED: AlertSeverity.INFO,
+    AlertType.SYNC_RELAY_FAILED: AlertSeverity.WARNING,
+    AlertType.SYNC_SV_MISMATCH: AlertSeverity.INFO,
 }
 
 

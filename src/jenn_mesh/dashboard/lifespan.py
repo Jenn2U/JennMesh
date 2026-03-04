@@ -143,6 +143,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             logger.exception("Mesh watchdog init failed — watchdog features unavailable")
 
+    # Best-effort sync relay manager init
+    if not hasattr(app.state, "sync_relay_manager") and getattr(app.state, "db", None) is not None:
+        try:
+            from jenn_mesh.core.sync_relay_manager import SyncRelayManager
+
+            app.state.sync_relay_manager = SyncRelayManager(db=app.state.db)
+        except Exception:
+            logger.exception("Sync relay init failed — sync relay features unavailable")
+
     if not hasattr(app.state, "startup_time"):
         app.state.startup_time = datetime.now(timezone.utc)
 

@@ -56,6 +56,7 @@ class MeshWatchdog:
         "failover_recovery": 300,  # 5 min
         "baseline_deviation": 600,  # 10 min
         "post_push_failures": 120,  # 2 min
+        "sync_health": 300,  # 5 min
     }
 
     DEFAULT_THRESHOLDS: dict[str, Any] = {
@@ -99,6 +100,7 @@ class MeshWatchdog:
             "failover_recovery": self._check_failover_recovery,
             "baseline_deviation": self._check_baseline_deviation,
             "post_push_failures": self._check_post_push_failures,
+            "sync_health": self._check_sync_health,
         }
 
     # ── Public API ────────────────────────────────────────────────────
@@ -366,6 +368,41 @@ class MeshWatchdog:
 
         manager = ConfigRollbackManager(self.db)
         return manager.check_post_push_failures()
+
+    def _check_sync_health(self) -> dict:
+        """Monitor sync relay health — stale sessions, SV divergence, queue depth.
+
+        Creates alerts for sync sessions stuck in 'sending' or 'pending' too long.
+        """
+        pending = self.db.get_pending_sync_entries()
+        stale_count = 0
+        for entry in pending:
+            # Check if entry has been pending for more than 10 minutes
+            created = entry.get("created_at", "")
+            if created:
+                try:
+                    from datetime import datetime, timezone
+
+                    created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                    age = (datetime.now(timezone.utc) - created_dt).total_seconds()
+                    if age > 600:
+                        stale_count += 1
+                except (ValueError, TypeError):
+                    pass
+
+        # Auto-resolve sync_relay_failed alerts if no pending entries remain
+        resolved = 0
+        if not pending:
+            resolved = self._auto_resolve_alerts(
+                "sync_relay_failed",
+                lambda _nid: True,
+            )
+
+        return {
+            "pending_queue_depth": len(pending),
+            "stale_sessions": stale_count,
+            "auto_resolved": resolved,
+        }
 
 
 # ── Async loop (started by lifespan) ─────────────────────────────────

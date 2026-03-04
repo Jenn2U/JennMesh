@@ -343,15 +343,14 @@ All radios display emergency messages regardless of current channel.
 **Implemented**: Schema v5, EmergencyBroadcastManager, 4 API endpoints, MQTT mesh echo delivery confirmation, 65 tests.
 
 ### MESH-027: Mesh Relay for Edge Sync (Backup Path)
-**Priority**: P2 | **Effort**: XXL | **Status**: Backlog
+**Priority**: P1 | **Effort**: XXL | **Status**: Done
 When internet is down, use mesh radios as a slow backup path for critical
 CRDT sync operations between edge nodes and Production.
-LoRa bandwidth is ~1-10 kbps — only sync high-priority deltas:
-  - Conversation state (small CRDT items)
-  - Device status changes
-  - Critical config updates
-Fragment large messages across multiple LoRa packets.
-Requires: mesh-to-MQTT bridge at a gateway node with internet connectivity.
+**Implemented**: Schema v11 (3 tables: crdt_sync_queue, crdt_sync_fragments, crdt_sync_log),
+SyncRelayManager (gateway orchestrator), SyncFragmenter/SyncReassembler (LoRa fragmentation),
+6-type wire protocol (SYNC_SV/REQ/FRAG/ACK/NACK/META), priority-based sync (P1-P4),
+heartbeat SV hash piggyback, CRC-16 integrity, cooldown-based triggering, MQTT SYNC_* routing,
+watchdog sync_health check, 5 API endpoints, 153 tests.
 **Architectural significance**: Makes JENN resilient to complete internet outages.
 
 ### MESH-028: Store-and-Forward Config Queue

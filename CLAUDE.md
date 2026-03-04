@@ -7,7 +7,7 @@ JennMesh is the centralized Meshtastic LoRa radio fleet management service for t
 **Version**: 0.3.0
 **Language**: Python 3.11+
 **Type**: Standalone mesh management service with web dashboard + agent daemon + CLI tools
-**Tests**: 852 (pytest) — target 80%+
+**Tests**: 1005 (pytest) — target 80%+
 
 ## Architecture
 
@@ -76,8 +76,12 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/core/failover_manager.py` | FailoverManager: assess, execute, revert, cancel, check_recoveries |
 | `src/jenn_mesh/models/failover.py` | FailoverEvent, FailoverCompensation, ImpactAssessment models + enums |
 | `src/jenn_mesh/dashboard/routes/failover.py` | 7 API endpoints (assess, execute, revert, cancel, status, active, check-recoveries) |
-| `src/jenn_mesh/core/mesh_watchdog.py` | MeshWatchdog: 9-check periodic health monitor with auto-resolve + audit trail |
+| `src/jenn_mesh/core/mesh_watchdog.py` | MeshWatchdog: 10-check periodic health monitor with auto-resolve + audit trail |
 | `src/jenn_mesh/dashboard/routes/watchdog.py` | 3 API endpoints (status, history, trigger) |
+| `src/jenn_mesh/core/sync_relay_manager.py` | SyncRelayManager: gateway CRDT relay (Production API ↔ LoRa mesh) |
+| `src/jenn_mesh/core/sync_fragmenter.py` | SyncFragmenter/SyncReassembler: LoRa payload fragmentation with CRC-16 |
+| `src/jenn_mesh/models/sync_relay.py` | Wire protocol (6 types), enums, format/parse helpers, SV hash, CRC-16 |
+| `src/jenn_mesh/dashboard/routes/sync_relay.py` | 5 API endpoints (status, sessions, session detail, log, trigger) |
 | `src/jenn_mesh/dashboard/app.py` | FastAPI dashboard application factory |
 | `src/jenn_mesh/dashboard/middleware.py` | Security headers, request logging, rate limiting, CORS |
 | `src/jenn_mesh/dashboard/error_handlers.py` | Global exception handlers (HTTP, validation, unhandled) |
@@ -86,7 +90,7 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/cli.py` | CLI entry point with subcommands |
 | `src/jenn_mesh/core/config_rollback.py` | OTA config rollback: snapshot → monitor → auto-rollback |
 | `src/jenn_mesh/dashboard/routes/config_rollback.py` | 4 API endpoints (snapshots, snapshot detail, manual rollback, status) |
-| `src/jenn_mesh/db.py` | SQLite WAL schema v10 (devices, positions, alerts, configs, heartbeats, emergency_broadcasts, recovery_commands, config_queue, failover_events, failover_compensations, watchdog_runs, config_snapshots) |
+| `src/jenn_mesh/db.py` | SQLite WAL schema v11 (+ crdt_sync_queue, crdt_sync_fragments, crdt_sync_log) |
 | `configs/*.yaml` | Golden Meshtastic config templates per device role |
 | `deploy/systemd/*.service` | 4 systemd unit files (broker, dashboard, agent, sentry) |
 | `deploy/scripts/install.sh` | 9-phase idempotent installer for ARM64 Linux |
@@ -153,12 +157,20 @@ The dashboard uses a layered middleware + error handling stack:
 Edge nodes send periodic heartbeat text messages over LoRa radio so JennMesh can differentiate "internet down but alive" from "truly dead" nodes.
 
 ### Wire Protocol
-`HEARTBEAT|{nodeId}|{uptime_s}|{services}|{battery}|{timestamp}`
-- ~60-80 bytes (well under LoRa 256-byte limit)
+`HEARTBEAT|{nodeId}|{uptime_s}|{services}|{battery}|{timestamp}[|{sv_hash}]`
+- ~60-80 bytes (well under LoRa 256-byte limit), optional 8-char SV hash for CRDT sync
 - Interval: 120 seconds (configurable via `--heartbeat-interval`)
 - Services: comma-separated `name:status` pairs (e.g., `edge:ok,mqtt:down`)
 
-### Database (Schema v4 → v5 adds emergency_broadcasts, v5 → v6 adds recovery_commands, v6 → v7 adds config_queue, v7 → v8 adds failover_events + failover_compensations, v8 → v9 adds watchdog_runs, v9 → v10 adds config_snapshots)
+### Sync Relay Wire Protocol (MESH-027)
+6 pipe-delimited message types on Channel 1 (ADMIN), max 200 bytes usable:
+- `SYNC_SV|{node_id}|{sv_json}` — full state vector
+- `SYNC_REQ|{session_id}|{total_frags}|{priority}` — announce incoming delta
+- `SYNC_FRAG|{session_id}|{seq}|{total}|{crc16}|{b64_payload}` — fragment
+- `SYNC_ACK|{session_id}|{seq}` / `SYNC_NACK|{session_id}|{seq}` — ACK/NACK
+- `SYNC_META|{node_id}|{key}|{value}` — single metadata update
+
+### Database (Schema v4 → v5 adds emergency_broadcasts, v5 → v6 adds recovery_commands, v6 → v7 adds config_queue, v7 → v8 adds failover_events + failover_compensations, v8 → v9 adds watchdog_runs, v9 → v10 adds config_snapshots, v10 → v11 adds crdt_sync_queue + crdt_sync_fragments + crdt_sync_log)
 - `mesh_heartbeats` table — stores every received heartbeat
 - `devices.mesh_status` — `"reachable"` | `"unreachable"` | `"unknown"`
 - `devices.last_mesh_heartbeat` — ISO timestamp of last heartbeat
@@ -415,7 +427,7 @@ Safety net for config pushes — snapshot device config before push, monitor for
 ### Integration Points
 - **BulkPushManager** — `snapshot_before_push()` before each device push, `mark_push_completed/failed()` after
 - **DriftRemediationManager** — same pattern in `remediate_device()`
-- **MeshWatchdog** — 9th check `post_push_failures` (2-min interval) calls `check_post_push_failures()`
+- **MeshWatchdog** — `post_push_failures` check (2-min interval) calls `check_post_push_failures()`
 - **FailoverManager** — excluded (has its own `original_value`/`revert_failover()` mechanism)
 
 ### API Endpoints
@@ -435,6 +447,49 @@ Safety net for config pushes — snapshot device config before push, monitor for
 - **Grace period monitoring**: Waits `monitoring_minutes` (default 10) before evaluating — config pushes trigger radio reboot
 - **Alert lifecycle**: TRIGGERED → COMPLETED or FAILED (3 new AlertType values)
 - **Optional injection**: `rollback_manager` parameter follows same pattern as `config_queue`
+
+## MESH-027: Mesh Relay for Edge Sync
+
+Gateway nodes with internet relay CRDT sync between Jenn Production and offline edge devices via LoRa mesh. Not a full-bandwidth replacement — LoRa caps at ~256 bytes per message — but keeps state vectors current, propagates tombstones, and syncs metadata.
+
+### Architecture
+`Jenn Production ↔ (HTTP) ↔ Gateway SyncRelayManager ↔ (LoRa fragments) ↔ Edge Node`
+
+### Priority System
+| Priority | Data Type | LoRa? |
+|----------|-----------|-------|
+| P1 (Critical) | Tombstones, config LWW | Yes, immediate |
+| P2 (Important) | Conversation metadata | Yes, batched |
+| P3 (Normal) | Memories (LWW) | Yes, if bandwidth allows |
+| P4 (Deferred) | Full content (`data` field) | TCP only |
+
+### Integration Points
+- **HeartbeatSender** — optional `sv_hash` piggyback (8-char SHA-256 of state vector)
+- **MQTTSubscriber** — `SYNC_*` prefix routing to SyncRelayManager
+- **MeshWatchdog** — `sync_health` check (5-min interval) monitors pending queue + stale sessions
+- **Health endpoint** — `sync_relay` component (13th)
+
+### API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/sync-relay/status` | Summary: active sessions, queue depth |
+| `GET` | `/api/v1/sync-relay/sessions` | List sessions (filter by node_id, status) |
+| `GET` | `/api/v1/sync-relay/session/{id}` | Session detail with fragment status |
+| `POST` | `/api/v1/sync-relay/trigger/{node_id}` | Manual sync trigger (requires `confirmed: true`) |
+| `GET` | `/api/v1/sync-relay/log` | Sync audit log (filter by node_id, direction) |
+
+### Database (Schema v11)
+- `crdt_sync_queue` — pending/active sync sessions with priority and status
+- `crdt_sync_fragments` — individual fragments with CRC-16, ACK tracking
+- `crdt_sync_log` — audit trail (items synced, bytes, duration, SV hashes)
+- 12 DB methods following config_snapshots CRUD pattern
+
+### Key Design
+- **Per-bucket fragment session IDs** — each priority bucket gets its own session_id to avoid UNIQUE constraint collisions
+- **Cooldown-based triggering** — suppress re-triggering for N minutes after sync completes
+- **Content stripping** — `data` fields removed for LoRa; metadata-only; backfill on TCP reconnect
+- **CRC-16/CCITT** — per-fragment integrity; NACK + retransmit on mismatch (max 3 retries)
+- **4 new AlertType values**: sync_relay_started, sync_relay_completed, sync_relay_failed, sync_sv_mismatch
 
 ## CLI Commands
 

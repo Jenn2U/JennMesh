@@ -171,7 +171,22 @@ async def health_check(request: Request) -> dict:
     else:
         components["config_rollback"] = {"status": "unavailable"}
 
-    # 12. Uptime
+    # 12. Sync relay
+    srm = getattr(request.app.state, "sync_relay_manager", None)
+    if srm is not None:
+        try:
+            sr_status = srm.get_sync_status()
+            components["sync_relay"] = {
+                "status": "healthy",
+                "active_sessions": sr_status.get("active_sessions", 0),
+                "queue_depth": sr_status.get("pending_queue_entries", 0),
+            }
+        except Exception as exc:
+            components["sync_relay"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["sync_relay"] = {"status": "unavailable"}
+
+    # 13. Uptime
     startup_time = getattr(request.app.state, "startup_time", None)
     if startup_time is not None:
         uptime = (datetime.now(timezone.utc) - startup_time).total_seconds()

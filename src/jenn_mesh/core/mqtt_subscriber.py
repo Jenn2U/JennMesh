@@ -281,6 +281,11 @@ class MQTTSubscriber:
             self._handle_emergency_echo(text, node_id)
             return
 
+        # Sync relay messages from edge node agents
+        if text.startswith("SYNC_"):
+            self._handle_sync_text(text, node_id)
+            return
+
         # Heartbeat messages from edge node agents
         if text.startswith("HEARTBEAT|"):
             from jenn_mesh.core.heartbeat_receiver import HeartbeatReceiver
@@ -336,6 +341,22 @@ class MQTTSubscriber:
 
         if self._on_alert:
             self._on_alert(f"emergency_echo:{emergency_type}:{node_id}")
+
+    def _handle_sync_text(self, text: str, node_id: str) -> None:
+        """Delegate SYNC_* messages to the SyncRelayManager (if available)."""
+        try:
+            from jenn_mesh.core.sync_relay_manager import SyncRelayManager
+
+            manager = getattr(self, "_sync_relay_manager", None)
+            if manager is None:
+                # Lazily construct — in production this would be injected
+                manager = SyncRelayManager(db=self.db)
+                self._sync_relay_manager = manager
+            consumed = manager.handle_mesh_text(text, node_id)
+            if consumed:
+                logger.debug("Sync text consumed from %s: %s", node_id, text[:30])
+        except Exception as e:
+            logger.error("Error handling sync text: %s", e)
 
     def _handle_recovery_ack(self, text: str, node_id: str) -> None:
         """Handle a RECOVER_ACK message from a target agent (via mesh relay).
