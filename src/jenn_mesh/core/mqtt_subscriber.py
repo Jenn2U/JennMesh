@@ -198,7 +198,7 @@ class MQTTSubscriber:
             last_seen=datetime.utcnow().isoformat(),
         )
 
-        logger.debug("Position updated: %s (%.2f, %.2f)", node_id, lat, lon)  # redacted precision
+        logger.debug("Position updated for node %s", node_id)
         if self._on_position_update:
             self._on_position_update(node_id, float(lat), float(lon))
 
