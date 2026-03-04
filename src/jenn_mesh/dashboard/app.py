@@ -225,6 +225,12 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
             app.state.encryption_auditor = EncryptionAuditor(db=db)
         except Exception:
             pass  # graceful degradation — encryption audit unavailable
+        try:
+            from jenn_mesh.core.webhook_manager import WebhookManager
+
+            app.state.webhook_manager = WebhookManager(db=db)
+        except Exception:
+            pass  # graceful degradation — webhooks unavailable
         app.state.startup_time = datetime.now(timezone.utc)
 
     # --- Error handlers ---
@@ -276,6 +282,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     from jenn_mesh.dashboard.routes.lost_node_ai import router as lost_node_ai_router
     from jenn_mesh.dashboard.routes.encryption import router as encryption_router
     from jenn_mesh.dashboard.routes.env_telemetry import router as env_telemetry_router
+    from jenn_mesh.dashboard.routes.webhooks import router as webhooks_router
 
     app.include_router(health_router, tags=["health"])
     # Heartbeat router before fleet router — /fleet/mesh-status must match
@@ -308,6 +315,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(lost_node_ai_router, prefix="/api/v1", tags=["ai"])
     app.include_router(env_telemetry_router, prefix="/api/v1", tags=["environment"])
     app.include_router(encryption_router, prefix="/api/v1", tags=["monitoring"])
+    app.include_router(webhooks_router, prefix="/api/v1", tags=["webhooks"])
 
     # Dashboard HTML pages
     @app.get("/")

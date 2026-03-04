@@ -200,7 +200,21 @@ async def health_check(request: Request) -> dict:
     else:
         components["encryption_audit"] = {"status": "unavailable"}
 
-    # 14. Uptime
+    # 14. Webhooks
+    wh_mgr = getattr(request.app.state, "webhook_manager", None)
+    if wh_mgr is not None:
+        try:
+            active_hooks = wh_mgr.list_webhooks(active_only=True)
+            components["webhooks"] = {
+                "status": "healthy",
+                "active_webhook_count": len(active_hooks),
+            }
+        except Exception as exc:
+            components["webhooks"] = {"status": "degraded", "error": str(exc)}
+    else:
+        components["webhooks"] = {"status": "unavailable"}
+
+    # 15. Uptime
     startup_time = getattr(request.app.state, "startup_time", None)
     if startup_time is not None:
         uptime = (datetime.now(timezone.utc) - startup_time).total_seconds()
