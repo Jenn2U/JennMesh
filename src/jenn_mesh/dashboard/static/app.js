@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupLocator();
     setupModal();
     setupSyncTrigger();
+    setupFailoverAssess();
     setInterval(() => {
         loadHealthData();
         loadFleetData();
@@ -29,6 +30,7 @@ function initNavigation() {
             if (tab === 'alerts') loadAlerts();
             if (tab === 'config') loadConfigData();
             if (tab === 'sync') loadSyncData();
+            if (tab === 'failover') loadFailoverData();
         });
     });
 }
@@ -898,5 +900,358 @@ async function triggerSync(nodeId) {
         p.style.color = 'var(--danger)';
         p.textContent = 'Error: ' + e.message;
         container.appendChild(p);
+    }
+}
+
+// --- Failover ---
+
+async function loadFailoverData() {
+    await loadActiveFailovers();
+    await loadFailoverEvents();
+}
+
+async function loadActiveFailovers() {
+    const container = document.getElementById('failover-active');
+    const summaryEl = document.getElementById('failover-summary');
+    if (!container) return;
+    clearChildren(container);
+
+    try {
+        const resp = await fetch('/api/v1/failover/active');
+        const data = await resp.json();
+        const events = data.events || [];
+
+        if (summaryEl) {
+            summaryEl.textContent = events.length ? events.length + ' active' : 'No active failovers';
+        }
+
+        if (events.length === 0) {
+            const p = document.createElement('p');
+            p.className = 'loading';
+            p.textContent = 'No active failovers';
+            container.appendChild(p);
+            return;
+        }
+
+        events.forEach(evt => {
+            const card = document.createElement('div');
+            card.className = 'failover-card';
+
+            const header = document.createElement('div');
+            header.className = 'failover-card-header';
+
+            const title = document.createElement('strong');
+            title.textContent = 'Node ' + (evt.failed_node_id || '\u2014');
+            header.appendChild(title);
+
+            const statusStr = evt.status || 'active';
+            const statusMap = {
+                active: 'badge-offline',
+                reverted: 'badge-online',
+                cancelled: 'badge-warning',
+                revert_failed: 'badge-offline',
+            };
+            header.appendChild(createBadge(statusStr, statusMap[statusStr] || ''));
+            card.appendChild(header);
+
+            // Dependent nodes
+            const deps = evt.dependent_nodes || [];
+            if (deps.length > 0) {
+                const depLabel = document.createElement('div');
+                depLabel.style.cssText = 'font-size:0.75rem;color:var(--text-muted);margin-bottom:0.25rem';
+                depLabel.textContent = 'Dependent: ' + deps.join(', ');
+                card.appendChild(depLabel);
+            }
+
+            // Compensations
+            const comps = evt.compensations || [];
+            if (comps.length > 0) {
+                const compList = document.createElement('div');
+                compList.className = 'compensation-list';
+
+                comps.forEach(c => {
+                    const chip = document.createElement('span');
+                    chip.className = 'compensation-chip';
+                    if (c.status) chip.classList.add(c.status);
+                    chip.textContent = (c.comp_node_id || '') + ' ' + (c.comp_type || '') + ' ' + (c.original_value || '') + '\u2192' + (c.new_value || '');
+                    compList.appendChild(chip);
+                });
+
+                card.appendChild(compList);
+            }
+
+            // Action buttons
+            const actions = document.createElement('div');
+            actions.style.cssText = 'display:flex;gap:0.375rem;margin-top:0.5rem';
+
+            if (statusStr === 'active') {
+                const revertBtn = document.createElement('button');
+                revertBtn.className = 'btn-primary btn-sm';
+                revertBtn.textContent = 'Revert';
+                revertBtn.addEventListener('click', () => revertFailover(evt.id, revertBtn));
+                actions.appendChild(revertBtn);
+
+                const cancelBtn = document.createElement('button');
+                cancelBtn.className = 'btn-outline btn-sm';
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.addEventListener('click', () => cancelFailover(evt.id, cancelBtn));
+                actions.appendChild(cancelBtn);
+            }
+
+            card.appendChild(actions);
+            container.appendChild(card);
+        });
+    } catch (e) {
+        console.error('Failed to load active failovers:', e);
+    }
+}
+
+async function loadFailoverEvents() {
+    const tbody = document.getElementById('failover-body');
+    if (!tbody) return;
+    clearChildren(tbody);
+
+    try {
+        const resp = await fetch('/api/v1/failover/active');
+        const data = await resp.json();
+        const events = data.events || [];
+
+        if (events.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 8;
+            td.className = 'loading';
+            td.textContent = 'No failover events';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+            return;
+        }
+
+        events.forEach(evt => {
+            const tr = document.createElement('tr');
+            tr.appendChild(createTextCell(evt.id !== undefined ? String(evt.id) : '\u2014'));
+            tr.appendChild(createTextCell(evt.failed_node_id || '\u2014'));
+            tr.appendChild(createTextCell((evt.dependent_nodes || []).join(', ') || '\u2014'));
+
+            // Compensations count
+            const comps = evt.compensations || [];
+            tr.appendChild(createTextCell(comps.length ? comps.length + ' actions' : '\u2014'));
+
+            // Status badge
+            const statusTd = document.createElement('td');
+            const st = (evt.status || '').toLowerCase();
+            const stMap = {
+                active: 'badge-offline',
+                reverted: 'badge-online',
+                cancelled: 'badge-warning',
+                revert_failed: 'badge-offline',
+            };
+            statusTd.appendChild(createBadge(evt.status || '\u2014', stMap[st] || ''));
+            tr.appendChild(statusTd);
+
+            tr.appendChild(createTextCell(evt.operator || '\u2014'));
+            tr.appendChild(createTextCell(evt.created_at ? new Date(evt.created_at).toLocaleString() : '\u2014'));
+
+            // Action buttons
+            const actionTd = document.createElement('td');
+            if (st === 'active') {
+                const revertBtn = document.createElement('button');
+                revertBtn.className = 'btn-primary btn-sm';
+                revertBtn.textContent = 'Revert';
+                revertBtn.addEventListener('click', () => revertFailover(evt.id, revertBtn));
+                actionTd.appendChild(revertBtn);
+
+                const cancelBtn = document.createElement('button');
+                cancelBtn.className = 'btn-outline btn-sm';
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.style.marginLeft = '0.25rem';
+                cancelBtn.addEventListener('click', () => cancelFailover(evt.id, cancelBtn));
+                actionTd.appendChild(cancelBtn);
+            }
+            tr.appendChild(actionTd);
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        console.error('Failed to load failover events:', e);
+    }
+}
+
+function setupFailoverAssess() {
+    const btn = document.getElementById('failover-assess-btn');
+    const input = document.getElementById('failover-assess-input');
+    if (!btn || !input) return;
+    btn.addEventListener('click', () => assessNode(input.value.trim()));
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') assessNode(input.value.trim());
+    });
+}
+
+async function assessNode(nodeId) {
+    if (!nodeId) return;
+    const container = document.getElementById('failover-assessment');
+    clearChildren(container);
+
+    const loading = document.createElement('p');
+    loading.className = 'loading';
+    loading.textContent = 'Assessing failover impact for ' + nodeId + '...';
+    container.appendChild(loading);
+
+    try {
+        const resp = await fetch('/api/v1/failover/' + encodeURIComponent(nodeId) + '/assess');
+        const data = await resp.json();
+        clearChildren(container);
+
+        if (!resp.ok) {
+            const p = document.createElement('p');
+            p.style.color = 'var(--danger)';
+            p.textContent = data.detail || 'Assessment failed';
+            container.appendChild(p);
+            return;
+        }
+
+        const panel = document.createElement('div');
+        panel.className = 'assessment-panel';
+
+        // SPOF indicator
+        const spofH = document.createElement('h4');
+        spofH.textContent = 'Single Point of Failure';
+        panel.appendChild(spofH);
+
+        const spofBadge = document.createElement('span');
+        spofBadge.className = 'spof-indicator ' + (data.is_spof ? 'yes' : 'no');
+        spofBadge.textContent = data.is_spof ? 'Yes \u2014 SPOF' : 'No \u2014 Redundant';
+        panel.appendChild(spofBadge);
+
+        // Dependent nodes
+        const deps = data.dependent_nodes || [];
+        if (deps.length > 0) {
+            const depH = document.createElement('h4');
+            depH.textContent = 'Dependent Nodes (' + deps.length + ')';
+            panel.appendChild(depH);
+
+            const depList = document.createElement('div');
+            depList.className = 'node-list';
+            deps.forEach(nid => {
+                const chip = document.createElement('span');
+                chip.className = 'node-chip';
+                chip.textContent = nid;
+                depList.appendChild(chip);
+            });
+            panel.appendChild(depList);
+        }
+
+        // Compensation candidates
+        const candidates = data.compensation_candidates || [];
+        if (candidates.length > 0) {
+            const candH = document.createElement('h4');
+            candH.textContent = 'Compensation Candidates (' + candidates.length + ')';
+            panel.appendChild(candH);
+
+            const candList = document.createElement('div');
+            candList.className = 'node-list';
+            candidates.forEach(c => {
+                const chip = document.createElement('span');
+                chip.className = 'node-chip';
+                chip.textContent = (c.node_id || '') + (c.battery !== undefined ? ' (' + c.battery + '%)' : '');
+                candList.appendChild(chip);
+            });
+            panel.appendChild(candList);
+        }
+
+        // Suggested compensations
+        const suggestions = data.suggested_compensations || [];
+        if (suggestions.length > 0) {
+            const sugH = document.createElement('h4');
+            sugH.textContent = 'Suggested Compensations (' + suggestions.length + ')';
+            panel.appendChild(sugH);
+
+            const sugList = document.createElement('div');
+            sugList.className = 'compensation-list';
+            suggestions.forEach(s => {
+                const chip = document.createElement('span');
+                chip.className = 'compensation-chip';
+                chip.textContent = (s.comp_node_id || s.node_id || '') + ' ' + (s.comp_type || '') + ' ' + (s.config_key || '') + ' \u2192 ' + (s.new_value || '');
+                sugList.appendChild(chip);
+            });
+            panel.appendChild(sugList);
+        }
+
+        // Execute button (only if there are suggestions)
+        if (suggestions.length > 0) {
+            const execBtn = document.createElement('button');
+            execBtn.className = 'btn-danger btn-sm';
+            execBtn.style.marginTop = '0.75rem';
+            execBtn.textContent = 'Execute Failover';
+            execBtn.addEventListener('click', () => executeFailover(nodeId, execBtn));
+            panel.appendChild(execBtn);
+        }
+
+        container.appendChild(panel);
+    } catch (e) {
+        clearChildren(container);
+        const p = document.createElement('p');
+        p.style.color = 'var(--danger)';
+        p.textContent = 'Error: ' + e.message;
+        container.appendChild(p);
+    }
+}
+
+async function executeFailover(nodeId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Executing...'; }
+    try {
+        const resp = await fetch('/api/v1/failover/' + encodeURIComponent(nodeId) + '/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirmed: true }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            console.error('Failover execute failed:', data);
+        }
+        await loadFailoverData();
+    } catch (e) {
+        console.error('Failover execute error:', e);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Execute Failover'; }
+    }
+}
+
+async function revertFailover(eventId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Reverting...'; }
+    try {
+        const resp = await fetch('/api/v1/failover/' + encodeURIComponent(eventId) + '/revert', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirmed: true }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            console.error('Failover revert failed:', data);
+        }
+        await loadFailoverData();
+    } catch (e) {
+        console.error('Failover revert error:', e);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Revert'; }
+    }
+}
+
+async function cancelFailover(eventId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Cancelling...'; }
+    try {
+        const resp = await fetch('/api/v1/failover/' + encodeURIComponent(eventId) + '/cancel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirmed: true }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            console.error('Failover cancel failed:', data);
+        }
+        await loadFailoverData();
+    } catch (e) {
+        console.error('Failover cancel error:', e);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Cancel'; }
     }
 }

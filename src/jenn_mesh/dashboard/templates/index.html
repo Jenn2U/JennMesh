@@ -23,6 +23,7 @@
             <a href="#locator" class="nav-link" data-tab="locator">Locator</a>
             <a href="#alerts" class="nav-link" data-tab="alerts">Alerts</a>
             <a href="#sync" class="nav-link" data-tab="sync">Sync</a>
+            <a href="#failover" class="nav-link" data-tab="failover">Failover</a>
             <a href="/fleet-query" class="nav-link">Ask AI</a>
         </nav>
     </header>
@@ -208,6 +209,47 @@
                 <button id="sync-trigger-btn" class="btn-primary">Trigger Sync</button>
             </div>
             <div id="sync-trigger-result"></div>
+        </section>
+
+        <!-- Failover Tab -->
+        <section class="tab-content" id="tab-failover">
+            <div class="section-header">
+                <h2>Automated Failover</h2>
+                <div id="failover-summary" class="queue-summary"></div>
+            </div>
+
+            <h3>Active Failovers</h3>
+            <div id="failover-active"></div>
+
+            <div class="section-header" style="margin-top:2rem">
+                <h3>Assess Node Impact</h3>
+            </div>
+            <div class="search-bar">
+                <input type="text" id="failover-assess-input" placeholder="Enter node ID to assess failover impact...">
+                <button id="failover-assess-btn" class="btn-primary">Assess</button>
+            </div>
+            <div id="failover-assessment"></div>
+
+            <div class="section-header" style="margin-top:2rem">
+                <h3>Failover Events</h3>
+            </div>
+            <table class="data-table" id="failover-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Failed Node</th>
+                        <th>Dependent</th>
+                        <th>Compensations</th>
+                        <th>Status</th>
+                        <th>Operator</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="failover-body">
+                    <tr><td colspan="8" class="loading">Loading failover events...</td></tr>
+                </tbody>
+            </table>
         </section>
     </main>
 

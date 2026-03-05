@@ -352,6 +352,99 @@ h3 { font-size: 1rem; margin: 1.5rem 0 0.75rem; color: var(--text-secondary); }
     text-align: right;
 }
 
+/* Failover Cards */
+.failover-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--danger);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.failover-card.reverted { border-left-color: var(--success); }
+.failover-card.cancelled { border-left-color: var(--text-muted); }
+
+.failover-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.failover-card-header strong {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8125rem;
+    color: var(--teal-light);
+}
+
+.compensation-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    margin-top: 0.375rem;
+}
+
+.compensation-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-family: 'JetBrains Mono', monospace;
+    background: rgba(13, 115, 119, 0.1);
+    color: var(--text-secondary);
+}
+
+.compensation-chip.applied { background: rgba(16, 185, 129, 0.1); color: var(--success); }
+.compensation-chip.reverted { background: rgba(100, 116, 139, 0.1); color: var(--text-muted); }
+.compensation-chip.revert_failed { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
+
+/* Assessment Panel */
+.assessment-panel {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-top: 0.5rem;
+}
+
+.assessment-panel h4 {
+    font-size: 0.875rem;
+    color: var(--teal-light);
+    margin: 0.75rem 0 0.375rem;
+}
+
+.assessment-panel h4:first-child { margin-top: 0; }
+
+.spof-indicator {
+    display: inline-block;
+    padding: 0.125rem 0.625rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.spof-indicator.yes { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+.spof-indicator.no { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+
+.node-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+}
+
+.node-chip {
+    padding: 0.125rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+}
+
 /* Footer */
 footer {
     text-align: center;
