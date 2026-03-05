@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from jenn_mesh.inference.ollama_client import (
+    DEFAULT_CODE_MODEL,
     AnomalyReport,
     LocationReasoning,
     OllamaClient,
@@ -535,3 +536,137 @@ class TestExtractJson:
     def test_handles_plain_text(self):
         text = "no json here"
         assert _extract_json(text) == "no json here"
+
+
+# ── Code model tests ────────────────────────────────────────────────
+
+
+class TestCodeModelConstants:
+    """Tests for code model configuration constants."""
+
+    def test_default_code_model_value(self):
+        assert DEFAULT_CODE_MODEL == "qwen2.5-coder:7b"
+
+    def test_code_model_env_override(self, monkeypatch):
+        monkeypatch.setenv("OLLAMA_CODE_MODEL", "qwen2.5-coder:3b")
+        client = OllamaClient()
+        assert client._code_model == "qwen2.5-coder:3b"
+
+    def test_code_model_default_when_no_env(self, monkeypatch):
+        monkeypatch.delenv("OLLAMA_CODE_MODEL", raising=False)
+        client = OllamaClient()
+        assert client._code_model == DEFAULT_CODE_MODEL
+
+
+class TestGenerateConfigYaml:
+    """Tests for generate_config_yaml() — Meshtastic YAML generation."""
+
+    @pytest.mark.asyncio
+    async def test_returns_yaml_when_available(self):
+        client = OllamaClient()
+        mock_client = AsyncMock()
+        mock_client.list = AsyncMock(
+            return_value=_make_list_response(["qwen2.5-coder:7b"])
+        )
+        mock_client.chat = AsyncMock(
+            return_value=_make_chat_response(
+                "lora:\n  region: US\n  bandwidth: 250\nchannels:\n  - name: default"
+            )
+        )
+        client._client = mock_client
+        client._code_model_available = None  # Reset cache
+
+        result = await client.generate_config_yaml({
+            "node_role": "router",
+            "region": "US",
+        })
+        assert result is not None
+        assert "lora" in result
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_unavailable(self):
+        client = OllamaClient()
+        client._code_model_available = False
+        result = await client.generate_config_yaml({"node_role": "router"})
+        assert result is None
+
+
+class TestAnalyzeRecoveryScript:
+    """Tests for analyze_recovery_script() — shell script safety analysis."""
+
+    @pytest.mark.asyncio
+    async def test_returns_dict_when_available(self):
+        client = OllamaClient()
+        mock_client = AsyncMock()
+        mock_client.list = AsyncMock(
+            return_value=_make_list_response(["qwen2.5-coder:7b"])
+        )
+        mock_client.chat = AsyncMock(
+            return_value=_make_chat_response(
+                '{"safe": true, "risks": [], "suggestions": ["add set -e"]}'
+            )
+        )
+        client._client = mock_client
+        client._code_model_available = None
+
+        result = await client.analyze_recovery_script("#!/bin/bash\necho hello")
+        assert result is not None
+        assert result["safe"] is True
+        assert isinstance(result["risks"], list)
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_unavailable(self):
+        client = OllamaClient()
+        client._code_model_available = False
+        result = await client.analyze_recovery_script("#!/bin/bash\nrm -rf /")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_on_invalid_json(self):
+        client = OllamaClient()
+        mock_client = AsyncMock()
+        mock_client.list = AsyncMock(
+            return_value=_make_list_response(["qwen2.5-coder:7b"])
+        )
+        mock_client.chat = AsyncMock(
+            return_value=_make_chat_response("this is not valid json")
+        )
+        client._client = mock_client
+        client._code_model_available = None
+
+        result = await client.analyze_recovery_script("#!/bin/bash\necho test")
+        assert result is None
+
+
+class TestHealthInfoCodeModel:
+    """Tests for code model fields in health_info()."""
+
+    @pytest.mark.asyncio
+    async def test_health_info_includes_code_model(self):
+        client = OllamaClient()
+        mock_client = AsyncMock()
+        mock_client.list = AsyncMock(
+            return_value=_make_list_response(["qwen3:4b", "qwen2.5-coder:7b"])
+        )
+        client._client = mock_client
+        client._available = None
+        client._code_model_available = None
+
+        info = await client.health_info()
+        assert "code_model" in info
+        assert "code_model_available" in info
+        assert info["code_model"] == DEFAULT_CODE_MODEL
+
+    @pytest.mark.asyncio
+    async def test_health_info_code_model_unavailable(self):
+        client = OllamaClient()
+        mock_client = AsyncMock()
+        mock_client.list = AsyncMock(
+            return_value=_make_list_response(["qwen3:4b"])
+        )
+        client._client = mock_client
+        client._available = None
+        client._code_model_available = None
+
+        info = await client.health_info()
+        assert info["code_model_available"] is False
