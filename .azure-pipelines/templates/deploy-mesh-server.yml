@@ -41,19 +41,16 @@ steps:
       echo "##vso[task.setvariable variable=meshVersion]${VERSION}"
     displayName: 'Extract version'
 
-  # Step 2: Download release artifact
-  - task: DownloadPipelineArtifact@2
-    inputs:
-      buildType: 'current'
-      artifactName: 'jenn-mesh-release'
-      targetPath: '$(Pipeline.Workspace)/release'
-    displayName: 'Download release artifact'
+  # Step 2: Download release artifact from CI pipeline resource
+  - download: JennMeshCI
+    artifact: 'jenn-mesh-release'
+    displayName: 'Download release artifact from CI'
 
   # Step 3: SCP tarball to target server
   - task: CopyFilesOverSSH@0
     inputs:
       sshEndpoint: '${{ parameters.sshServiceConnection }}'
-      sourceFolder: '$(Pipeline.Workspace)/release'
+      sourceFolder: '$(Pipeline.Workspace)/JennMeshCI/jenn-mesh-release'
       contents: 'jenn-mesh-*.tar.gz'
       targetFolder: '/tmp/jenn-mesh-deploy'
       cleanTargetFolder: true
