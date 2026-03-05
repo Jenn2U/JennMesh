@@ -5,6 +5,10 @@ Follows JennEdge's AsyncClient pattern (src/llm/ollama_client.py) but adapted
 for fleet-management AI tasks: anomaly detection, alert summarization,
 provisioning advice, and lost node reasoning.
 
+Supports:
+    - Function calling via Ollama's native tools API
+    - Pydantic-validated structured output via Instructor (auto-retry on schema violations)
+
 Environment variables:
     OLLAMA_HOST  — Ollama server URL (default: http://localhost:11434)
     OLLAMA_MODEL — Model to use (default: qwen3:4b)
@@ -15,8 +19,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional, Type, TypeVar
+
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -25,41 +30,40 @@ DEFAULT_HOST = "http://localhost:11434"
 DEFAULT_MODEL = "qwen3:4b"
 DEFAULT_CODE_MODEL = "qwen2.5-coder:7b"
 
+T = TypeVar("T", bound=BaseModel)
 
-@dataclass
-class AnomalyReport:
+
+class AnomalyReport(BaseModel):
     """Result of Ollama anomaly analysis for a mesh node."""
 
-    node_id: str
+    node_id: str = ""
     is_anomalous: bool = False
-    severity: str = "info"  # info, warning, critical
-    summary: str = ""
-    details: str = ""
-    recommended_action: str = ""
-    confidence: float = 0.0  # 0.0 - 1.0
+    severity: str = Field(default="info", description="info, warning, or critical")
+    summary: str = Field(default="", description="1-2 sentence summary")
+    details: str = Field(default="", description="Technical explanation")
+    recommended_action: str = Field(default="", description="What operator should do")
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
-@dataclass
-class ProvisioningAdvice:
+class ProvisioningAdvice(BaseModel):
     """Ollama-generated deployment recommendations."""
 
     summary: str = ""
-    recommended_roles: list[dict[str, str]] = field(default_factory=list)
+    recommended_roles: list[dict[str, str]] = Field(default_factory=list)
     power_settings: str = ""
     channel_config: str = ""
-    deployment_order: list[str] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
+    deployment_order: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
-@dataclass
-class LocationReasoning:
+class LocationReasoning(BaseModel):
     """Ollama-generated reasoning about a lost node's probable location."""
 
     node_id: str = ""
-    probable_location: str = ""
-    reasoning: str = ""
-    search_recommendations: list[str] = field(default_factory=list)
-    confidence: str = "low"  # low, medium, high
+    probable_location: str = Field(default="", description="Estimated location description")
+    reasoning: str = Field(default="", description="Explanation of reasoning")
+    search_recommendations: list[str] = Field(default_factory=list)
+    confidence: str = Field(default="low", description="low, medium, or high")
 
 
 class OllamaClient:
@@ -68,6 +72,10 @@ class OllamaClient:
     All public methods return structured results or None when Ollama is
     unavailable. No method raises on Ollama connection failure — they log
     warnings and return graceful fallbacks.
+
+    Supports:
+    - Function calling via ``tools`` parameter (Ollama native)
+    - Pydantic-validated structured output via ``chat_structured()`` (Instructor)
     """
 
     def __init__(
@@ -80,6 +88,7 @@ class OllamaClient:
         self._model = model or os.environ.get("OLLAMA_MODEL", DEFAULT_MODEL)
         self._code_model = code_model or os.environ.get("OLLAMA_CODE_MODEL", DEFAULT_CODE_MODEL)
         self._client: Any = None  # Lazy-loaded ollama.AsyncClient
+        self._instructor_client: Any = None  # Lazy-loaded instructor client
         self._available: Optional[bool] = None  # Cached availability
         self._code_model_available: Optional[bool] = None
 
@@ -108,6 +117,25 @@ class OllamaClient:
                 )
                 return None
         return self._client
+
+    def _get_instructor_client(self) -> Any:
+        """Lazy-load the Instructor client for Pydantic-validated output."""
+        if self._instructor_client is None:
+            try:
+                import instructor
+
+                self._instructor_client = instructor.from_provider(
+                    f"ollama/{self._model}",
+                    base_url=f"{self._host}/v1",
+                    mode=instructor.Mode.JSON,
+                )
+            except ImportError:
+                logger.warning(
+                    "instructor package not installed. "
+                    "Install with: pip install jenn-mesh[ollama]"
+                )
+                return None
+        return self._instructor_client
 
     async def is_available(self) -> bool:
         """Check if Ollama server is reachable and model is loaded.
@@ -148,10 +176,21 @@ class OllamaClient:
         """Clear cached availability so next call re-checks."""
         self._available = None
 
-    async def chat(self, system_prompt: str, user_message: str) -> Optional[str]:
+    async def chat(
+        self,
+        system_prompt: str,
+        user_message: str,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[str]:
         """Send a chat completion request to Ollama.
 
-        Returns the assistant's response text, or None if unavailable.
+        Args:
+            system_prompt: System instruction.
+            user_message: User message.
+            tools: Optional Ollama function-calling tool schemas.
+
+        Returns the assistant's response text, raw response for tool calls,
+        or None if unavailable.
         """
         if not await self.is_available():
             return None
@@ -161,13 +200,27 @@ class OllamaClient:
             return None
 
         try:
-            response = await client.chat(
-                model=self._model,
-                messages=[
+            kwargs: Dict[str, Any] = {
+                "model": self._model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message},
                 ],
-            )
+            }
+            if tools:
+                kwargs["tools"] = tools
+
+            response = await client.chat(**kwargs)
+
+            # Return raw response for tool call dispatch
+            if (
+                tools
+                and hasattr(response, "message")
+                and hasattr(response.message, "tool_calls")
+                and response.message.tool_calls
+            ):
+                return response
+
             content = response.get("message", {}).get("content", "")
             # Strip <think> blocks from qwen3 reasoning models
             return _strip_think_tags(content)
@@ -176,7 +229,11 @@ class OllamaClient:
             return None
 
     async def chat_json(self, system_prompt: str, user_message: str) -> Optional[dict[str, Any]]:
-        """Chat with JSON output parsing. Returns parsed dict or None."""
+        """Chat with JSON output parsing. Returns parsed dict or None.
+
+        Note: For new code, prefer ``chat_structured()`` which uses Instructor
+        for Pydantic-validated output with auto-retry.
+        """
         raw = await self.chat(system_prompt, user_message)
         if raw is None:
             return None
@@ -186,10 +243,65 @@ class OllamaClient:
             logger.warning("Ollama returned non-JSON response: %s", type(exc).__name__)
             return None
 
+    async def chat_structured(
+        self,
+        response_model: Type[T],
+        system_prompt: str,
+        user_message: str,
+        max_retries: int = 2,
+    ) -> Optional[T]:
+        """Chat with Pydantic-validated structured output via Instructor.
+
+        Uses Instructor to automatically validate the LLM response against
+        the given Pydantic model schema. If the response doesn't match,
+        Instructor retries with validation error feedback.
+
+        Args:
+            response_model: Pydantic model class to validate against.
+            system_prompt: System instruction.
+            user_message: User message.
+            max_retries: Number of retries on validation failure (default: 2).
+
+        Returns:
+            Validated Pydantic model instance, or None if unavailable/failed.
+        """
+        if not await self.is_available():
+            return None
+
+        instructor_client = self._get_instructor_client()
+        if instructor_client is None:
+            # Fall back to chat_json + manual construction
+            logger.debug("Instructor unavailable, falling back to chat_json")
+            raw = await self.chat_json(system_prompt, user_message)
+            if raw is None:
+                return None
+            try:
+                return response_model.model_validate(raw)
+            except Exception as exc:
+                logger.warning("Fallback validation failed: %s", type(exc).__name__)
+                return None
+
+        try:
+            result = instructor_client.create(
+                model=f"ollama/{self._model}",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                response_model=response_model,
+                max_retries=max_retries,
+            )
+            return result
+        except Exception as exc:
+            logger.error("Instructor structured output failed: %s", type(exc).__name__)
+            return None
+
     # ── Feature-specific methods ─────────────────────────────────────
 
     async def analyze_anomaly(self, telemetry_context: dict) -> Optional[AnomalyReport]:
         """Analyze node telemetry for anomalies using LLM reasoning.
+
+        Uses Instructor for Pydantic-validated output with auto-retry.
 
         Args:
             telemetry_context: Dict with keys: node_id, recent_samples,
@@ -198,24 +310,13 @@ class OllamaClient:
         node_id = telemetry_context.get("node_id", "unknown")
         system_prompt = (
             "You are a Meshtastic mesh network analyst. Analyze the telemetry data "
-            "for anomalies (unusual signal patterns, battery drain, connectivity issues). "
-            "Respond in JSON with keys: is_anomalous (bool), severity (info/warning/critical), "
-            "summary (1-2 sentences), details (technical explanation), "
-            "recommended_action (what operator should do), confidence (0.0-1.0)."
+            "for anomalies (unusual signal patterns, battery drain, connectivity issues)."
         )
         user_msg = json.dumps(telemetry_context, indent=2, default=str)
-        result = await self.chat_json(system_prompt, user_msg)
-        if result is None:
-            return None
-        return AnomalyReport(
-            node_id=node_id,
-            is_anomalous=result.get("is_anomalous", False),
-            severity=result.get("severity", "info"),
-            summary=result.get("summary", ""),
-            details=result.get("details", ""),
-            recommended_action=result.get("recommended_action", ""),
-            confidence=float(result.get("confidence", 0.0)),
-        )
+        report = await self.chat_structured(AnomalyReport, system_prompt, user_msg)
+        if report is not None:
+            report.node_id = node_id
+        return report
 
     async def summarize_alerts(self, alerts: list[dict]) -> Optional[str]:
         """Collapse multiple alerts into a human-readable summary.
@@ -237,6 +338,8 @@ class OllamaClient:
     async def advise_provisioning(self, deployment_context: dict) -> Optional[ProvisioningAdvice]:
         """Generate deployment recommendations for a new mesh deployment.
 
+        Uses Instructor for Pydantic-validated output with auto-retry.
+
         Args:
             deployment_context: Dict with keys: terrain, num_nodes,
                 power_source, desired_coverage_m, existing_nodes
@@ -244,25 +347,15 @@ class OllamaClient:
         system_prompt = (
             "You are a Meshtastic deployment expert. Based on the deployment context, "
             "recommend node roles, power settings, channel configuration, and deployment "
-            "order. Respond in JSON with keys: summary (str), recommended_roles (list of "
-            "{node_name: str, role: str, reason: str}), power_settings (str), "
-            "channel_config (str), deployment_order (list of str), warnings (list of str)."
+            "order."
         )
         user_msg = json.dumps(deployment_context, indent=2, default=str)
-        result = await self.chat_json(system_prompt, user_msg)
-        if result is None:
-            return None
-        return ProvisioningAdvice(
-            summary=result.get("summary", ""),
-            recommended_roles=result.get("recommended_roles", []),
-            power_settings=result.get("power_settings", ""),
-            channel_config=result.get("channel_config", ""),
-            deployment_order=result.get("deployment_order", []),
-            warnings=result.get("warnings", []),
-        )
+        return await self.chat_structured(ProvisioningAdvice, system_prompt, user_msg)
 
     async def reason_lost_node(self, node_context: dict) -> Optional[LocationReasoning]:
         """Generate probabilistic location reasoning for a lost node.
+
+        Uses Instructor for Pydantic-validated output with auto-retry.
 
         Args:
             node_context: Dict with keys: node_id, last_positions,
@@ -272,21 +365,13 @@ class OllamaClient:
         system_prompt = (
             "You are a search-and-rescue analyst for Meshtastic mesh radio nodes. "
             "Based on the node's last known data, estimate its probable location and "
-            "provide search recommendations. Respond in JSON with keys: "
-            "probable_location (description), reasoning (explanation), "
-            "search_recommendations (list of str), confidence (low/medium/high)."
+            "provide search recommendations."
         )
         user_msg = json.dumps(node_context, indent=2, default=str)
-        result = await self.chat_json(system_prompt, user_msg)
-        if result is None:
-            return None
-        return LocationReasoning(
-            node_id=node_context.get("node_id", ""),
-            probable_location=result.get("probable_location", ""),
-            reasoning=result.get("reasoning", ""),
-            search_recommendations=result.get("search_recommendations", []),
-            confidence=result.get("confidence", "low"),
-        )
+        result = await self.chat_structured(LocationReasoning, system_prompt, user_msg)
+        if result is not None:
+            result.node_id = node_context.get("node_id", "")
+        return result
 
     async def _is_code_model_available(self) -> bool:
         """Check if the code model is available on Ollama."""

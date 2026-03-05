@@ -5,6 +5,15 @@ All notable changes to JennMesh will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-03-05
+
+### Added
+- **Qwen2.5-Coder code model support**: Dedicated code model for structured output tasks
+- `generate_config_yaml()` — Meshtastic YAML configuration generation via code model
+- `analyze_recovery_script()` — Shell script safety analysis before execution
+- Code model availability reporting in `health_info()` endpoint
+- `OLLAMA_CODE_MODEL` environment variable for code model configuration
+
 ## [0.7.0] - 2026-03-04
 
 ### Added

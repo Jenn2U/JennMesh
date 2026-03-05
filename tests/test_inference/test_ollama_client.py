@@ -338,6 +338,158 @@ class TestReasonLostNode:
         assert len(result.search_recommendations) == 2
 
 
+# ── Function calling tests ───────────────────────────────────────────
+
+
+class TestChatWithTools:
+    @pytest.mark.asyncio
+    async def test_chat_passes_tools_in_kwargs(self):
+        mock_client = AsyncMock()
+        mock_client.chat = AsyncMock(return_value=_make_chat_response("OK"))
+        client = OllamaClient()
+        client._client = mock_client
+        client._available = True
+
+        tools = [{"type": "function", "function": {"name": "get_status"}}]
+        await client.chat("system", "user", tools=tools)
+
+        call_args = mock_client.chat.call_args
+        assert call_args.kwargs.get("tools") == tools
+
+    @pytest.mark.asyncio
+    async def test_chat_returns_raw_on_tool_calls(self):
+        mock_response = SimpleNamespace(
+            message=SimpleNamespace(
+                content="",
+                tool_calls=[{"function": {"name": "restart", "arguments": {}}}],
+            )
+        )
+        mock_client = AsyncMock()
+        mock_client.chat = AsyncMock(return_value=mock_response)
+        client = OllamaClient()
+        client._client = mock_client
+        client._available = True
+
+        tools = [{"type": "function", "function": {"name": "restart"}}]
+        result = await client.chat("system", "restart node", tools=tools)
+
+        # Should return raw response for tool dispatch
+        assert result is mock_response
+
+    @pytest.mark.asyncio
+    async def test_chat_without_tools_normal_text(self):
+        mock_client = AsyncMock()
+        mock_client.chat = AsyncMock(return_value=_make_chat_response("Hello!"))
+        client = OllamaClient()
+        client._client = mock_client
+        client._available = True
+
+        result = await client.chat("system", "hi")
+        assert result == "Hello!"
+
+
+# ── Structured output tests ──────────────────────────────────────────
+
+
+class TestChatStructured:
+    @pytest.mark.asyncio
+    async def test_structured_fallback_to_chat_json(self):
+        """Without instructor installed, chat_structured falls back to chat_json + model_validate."""
+        analysis = {
+            "is_anomalous": True,
+            "severity": "critical",
+            "summary": "High battery drain",
+            "details": "Draining fast",
+            "recommended_action": "Check panel",
+            "confidence": 0.9,
+        }
+        mock_client = AsyncMock()
+        mock_client.chat = AsyncMock(return_value=_make_chat_response(json.dumps(analysis)))
+        client = OllamaClient()
+        client._client = mock_client
+        client._available = True
+
+        result = await client.chat_structured(AnomalyReport, "system", "analyze")
+        assert result is not None
+        assert isinstance(result, AnomalyReport)
+        assert result.is_anomalous is True
+        assert result.confidence == 0.9
+
+    @pytest.mark.asyncio
+    async def test_structured_fallback_invalid_json_returns_none(self):
+        mock_client = AsyncMock()
+        mock_client.chat = AsyncMock(return_value=_make_chat_response("not json"))
+        client = OllamaClient()
+        client._client = mock_client
+        client._available = True
+
+        result = await client.chat_structured(AnomalyReport, "system", "analyze")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_structured_fallback_validation_error_returns_none(self):
+        """When JSON is valid but doesn't match schema, returns None."""
+        mock_client = AsyncMock()
+        mock_client.chat = AsyncMock(
+            return_value=_make_chat_response(json.dumps({"wrong_key": "value"}))
+        )
+        client = OllamaClient()
+        client._client = mock_client
+        client._available = True
+
+        result = await client.chat_structured(AnomalyReport, "system", "analyze")
+        # Should still work because AnomalyReport has all fields with defaults
+        assert result is not None
+        assert result.is_anomalous is False  # default
+
+    @pytest.mark.asyncio
+    async def test_structured_unavailable_returns_none(self):
+        client = OllamaClient()
+        client._available = False
+        result = await client.chat_structured(AnomalyReport, "system", "analyze")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_provisioning_via_structured(self):
+        advice_json = {
+            "summary": "Deploy 3 nodes in line topology",
+            "recommended_roles": [{"node_name": "hub", "role": "ROUTER"}],
+            "power_settings": "TX 20dBm",
+            "channel_config": "LongFast",
+            "deployment_order": ["hub", "spoke-1"],
+            "warnings": [],
+        }
+        mock_client = AsyncMock()
+        mock_client.chat = AsyncMock(return_value=_make_chat_response(json.dumps(advice_json)))
+        client = OllamaClient()
+        client._client = mock_client
+        client._available = True
+
+        result = await client.chat_structured(ProvisioningAdvice, "system", "advise")
+        assert result is not None
+        assert isinstance(result, ProvisioningAdvice)
+        assert "line" in result.summary
+
+    @pytest.mark.asyncio
+    async def test_location_reasoning_via_structured(self):
+        reasoning_json = {
+            "probable_location": "Near dock",
+            "reasoning": "Last seen heading NW",
+            "search_recommendations": ["Check dock area"],
+            "confidence": "high",
+        }
+        mock_client = AsyncMock()
+        mock_client.chat = AsyncMock(return_value=_make_chat_response(json.dumps(reasoning_json)))
+        client = OllamaClient()
+        client._client = mock_client
+        client._available = True
+
+        result = await client.chat_structured(LocationReasoning, "system", "locate")
+        assert result is not None
+        assert isinstance(result, LocationReasoning)
+        assert result.confidence == "high"
+
+
 # ── Utility function tests ───────────────────────────────────────────
 
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jenn-mesh"
-version = "0.7.0"
+version = "0.8.0"
 description = "Centralized Meshtastic LoRa radio fleet management for the JENN Intelligent Ecosystem"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -40,6 +40,8 @@ test = [
 ]
 ollama = [
   "ollama>=0.4.0",
+  "instructor>=1.7.0",
+  "openai>=1.0.0",
 ]
 dev = [
   "black>=24.0.0",
