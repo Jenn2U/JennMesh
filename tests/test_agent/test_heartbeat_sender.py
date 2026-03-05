@@ -53,7 +53,7 @@ class TestBuildMessage:
 
 class TestIntervalGating:
     def test_should_send_initially(self, sender: HeartbeatSender):
-        """First call should always send (last_sent = 0)."""
+        """First call should always send (last_sent = -inf)."""
         assert sender.should_send() is True
 
     def test_should_not_send_after_recent(self, sender: HeartbeatSender):

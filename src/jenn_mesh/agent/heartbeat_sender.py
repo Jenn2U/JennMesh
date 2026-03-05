@@ -41,7 +41,7 @@ class HeartbeatSender:
         self.node_id = node_id
         self.bridge = bridge
         self.interval = interval
-        self._last_sent: float = 0.0
+        self._last_sent: float = float("-inf")
         self._start_time: float = time.monotonic()
         self._send_count: int = 0
 
