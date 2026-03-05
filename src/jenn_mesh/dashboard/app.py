@@ -79,6 +79,7 @@ OPENAPI_TAGS = [
     },
     {"name": "edge-associations", "description": "JennEdge device ↔ mesh radio cross-reference"},
     {"name": "fleet-query", "description": "Natural language fleet queries via Ollama"},
+    {"name": "crews", "description": "CrewAI multi-agent orchestration"},
 ]
 
 
@@ -354,6 +355,7 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
         router as edge_associations_router,
     )
     from jenn_mesh.dashboard.routes.fleet_query import router as fleet_query_router
+    from jenn_mesh.dashboard.routes.crews import router as crews_router
 
     app.include_router(health_router, tags=["health"])
     # Heartbeat router before fleet router — /fleet/mesh-status must match
@@ -395,6 +397,15 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     app.include_router(asset_tracking_router, prefix="/api/v1", tags=["asset-tracking"])
     app.include_router(edge_associations_router, prefix="/api/v1", tags=["edge-associations"])
     app.include_router(fleet_query_router, prefix="/api/v1", tags=["fleet-query"])
+    app.include_router(crews_router, prefix="/api/v1", tags=["crews"])
+
+    # Initialize CrewAI tools (no-op if disabled or crewai not installed)
+    try:
+        from jenn_mesh.crews import init_crews
+
+        init_crews(app)
+    except Exception:
+        pass  # graceful degradation — CrewAI orchestration unavailable
 
     # Dashboard HTML pages
     @app.get("/")

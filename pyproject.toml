@@ -49,6 +49,9 @@ ollama = [
   "instructor>=1.7.0",
   "openai>=1.0.0",
 ]
+crews = [
+  "crewai>=0.100.0",
+]
 dev = [
   "black>=24.0.0",
   "flake8>=7.0.0",
