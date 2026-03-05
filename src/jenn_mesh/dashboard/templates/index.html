@@ -22,6 +22,7 @@
             <a href="#provision" class="nav-link" data-tab="provision">Provision</a>
             <a href="#locator" class="nav-link" data-tab="locator">Locator</a>
             <a href="#alerts" class="nav-link" data-tab="alerts">Alerts</a>
+            <a href="#sync" class="nav-link" data-tab="sync">Sync</a>
             <a href="/fleet-query" class="nav-link">Ask AI</a>
         </nav>
     </header>
@@ -165,6 +166,48 @@
         <section class="tab-content" id="tab-alerts">
             <h2>Active Alerts</h2>
             <div id="alerts-list"></div>
+        </section>
+
+        <!-- Sync Relay Tab -->
+        <section class="tab-content" id="tab-sync">
+            <div class="section-header">
+                <h2>Mesh Sync Relay</h2>
+                <div id="sync-summary" class="queue-summary"></div>
+            </div>
+
+            <h3>Active Sessions</h3>
+            <div id="sync-sessions"></div>
+
+            <div class="section-header" style="margin-top:2rem">
+                <h3>Sync Log</h3>
+            </div>
+            <table class="data-table" id="sync-log-table">
+                <thead>
+                    <tr>
+                        <th>Session</th>
+                        <th>Node</th>
+                        <th>Direction</th>
+                        <th>Priority</th>
+                        <th>Items</th>
+                        <th>Bytes</th>
+                        <th>Duration</th>
+                        <th>Status</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody id="sync-log-body">
+                    <tr><td colspan="9" class="loading">Loading sync log...</td></tr>
+                </tbody>
+            </table>
+
+            <div class="section-header" style="margin-top:2rem">
+                <h3>Manual Trigger</h3>
+            </div>
+            <div class="search-bar">
+                <input type="text" id="sync-trigger-input" placeholder="Enter node ID to trigger sync...">
+                <button id="sync-trigger-btn" class="btn-primary">Trigger Sync</button>
+            </div>
+            <div id="sync-trigger-result"></div>
         </section>
     </main>
 

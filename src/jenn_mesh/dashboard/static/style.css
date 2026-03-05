@@ -294,6 +294,64 @@ h3 { font-size: 1rem; margin: 1.5rem 0 0.75rem; color: var(--text-secondary); }
     border-top: 1px solid var(--border);
 }
 
+/* Sync Session Cards */
+.sync-session-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.sync-session-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.sync-session-header strong {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8125rem;
+    color: var(--teal-light);
+}
+
+.sync-session-meta {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.sync-session-meta span { font-family: 'JetBrains Mono', monospace; }
+
+/* Progress Bar */
+.progress-bar-track {
+    height: 6px;
+    background: var(--bg-primary);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+    background: var(--teal);
+}
+
+.progress-bar-fill.complete { background: var(--success); }
+.progress-bar-fill.failed { background: var(--danger); }
+
+.progress-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    margin-top: 0.25rem;
+    text-align: right;
+}
+
 /* Footer */
 footer {
     text-align: center;

@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadFleetData();
     setupLocator();
     setupModal();
+    setupSyncTrigger();
     setInterval(() => {
         loadHealthData();
         loadFleetData();
@@ -27,6 +28,7 @@ function initNavigation() {
             if (tab === 'provision') loadProvisionLog();
             if (tab === 'alerts') loadAlerts();
             if (tab === 'config') loadConfigData();
+            if (tab === 'sync') loadSyncData();
         });
     });
 }
@@ -653,6 +655,243 @@ async function locateNode(nodeId) {
             table.appendChild(tbody);
             container.appendChild(table);
         }
+    } catch (e) {
+        clearChildren(container);
+        const p = document.createElement('p');
+        p.style.color = 'var(--danger)';
+        p.textContent = 'Error: ' + e.message;
+        container.appendChild(p);
+    }
+}
+
+// --- Sync Relay ---
+
+async function loadSyncData() {
+    await loadSyncStatus();
+    await loadSyncSessions();
+    await loadSyncLog();
+}
+
+async function loadSyncStatus() {
+    const summaryEl = document.getElementById('sync-summary');
+    if (!summaryEl) return;
+
+    try {
+        const resp = await fetch('/api/v1/sync-relay/status');
+        const data = await resp.json();
+
+        clearChildren(summaryEl);
+        const parts = [];
+        if (data.active_sessions !== undefined) parts.push(data.active_sessions + ' active');
+        if (data.queue_depth !== undefined) parts.push(data.queue_depth + ' queued');
+        if (data.total_synced !== undefined) parts.push(data.total_synced + ' synced');
+        summaryEl.textContent = parts.length ? parts.join(' \u00B7 ') : 'No sync activity';
+    } catch (e) {
+        console.error('Failed to load sync status:', e);
+        if (summaryEl) summaryEl.textContent = 'Unavailable';
+    }
+}
+
+async function loadSyncSessions() {
+    const container = document.getElementById('sync-sessions');
+    if (!container) return;
+    clearChildren(container);
+
+    try {
+        const resp = await fetch('/api/v1/sync-relay/sessions?limit=20');
+        const data = await resp.json();
+        const sessions = data.sessions || [];
+
+        if (sessions.length === 0) {
+            const p = document.createElement('p');
+            p.className = 'loading';
+            p.textContent = 'No active sync sessions';
+            container.appendChild(p);
+            return;
+        }
+
+        sessions.forEach(s => {
+            const card = document.createElement('div');
+            card.className = 'sync-session-card';
+
+            // Header row: session ID + status badge
+            const header = document.createElement('div');
+            header.className = 'sync-session-header';
+            const idEl = document.createElement('strong');
+            idEl.textContent = s.session_id || s.id || '\u2014';
+            header.appendChild(idEl);
+
+            const statusStr = s.status || 'unknown';
+            const statusMap = {
+                pending: 'badge-warning',
+                sending: 'badge-warning',
+                completed: 'badge-online',
+                failed: 'badge-offline',
+                partial: 'badge-warning',
+            };
+            header.appendChild(createBadge(statusStr, statusMap[statusStr] || ''));
+            card.appendChild(header);
+
+            // Meta row: node, direction, priority
+            const meta = document.createElement('div');
+            meta.className = 'sync-session-meta';
+
+            const nodeSpan = document.createElement('span');
+            nodeSpan.textContent = 'Node: ' + (s.node_id || s.target_node_id || '\u2014');
+            meta.appendChild(nodeSpan);
+
+            if (s.direction) {
+                const dirSpan = document.createElement('span');
+                dirSpan.textContent = 'Dir: ' + s.direction;
+                meta.appendChild(dirSpan);
+            }
+
+            if (s.priority !== undefined) {
+                const priSpan = document.createElement('span');
+                priSpan.textContent = 'P' + s.priority;
+                meta.appendChild(priSpan);
+            }
+
+            card.appendChild(meta);
+
+            // Progress bar (if fragment info available)
+            const total = s.total_fragments || s.total || 0;
+            const acked = s.acked_fragments || s.acked || 0;
+            if (total > 0) {
+                const pct = Math.round((acked / total) * 100);
+
+                const track = document.createElement('div');
+                track.className = 'progress-bar-track';
+                const fill = document.createElement('div');
+                fill.className = 'progress-bar-fill';
+                if (statusStr === 'completed') fill.classList.add('complete');
+                if (statusStr === 'failed') fill.classList.add('failed');
+                fill.style.width = pct + '%';
+                track.appendChild(fill);
+                card.appendChild(track);
+
+                const label = document.createElement('div');
+                label.className = 'progress-label';
+                label.textContent = acked + '/' + total + ' fragments (' + pct + '%)';
+                card.appendChild(label);
+            }
+
+            container.appendChild(card);
+        });
+    } catch (e) {
+        console.error('Failed to load sync sessions:', e);
+    }
+}
+
+async function loadSyncLog() {
+    const tbody = document.getElementById('sync-log-body');
+    if (!tbody) return;
+    clearChildren(tbody);
+
+    try {
+        const resp = await fetch('/api/v1/sync-relay/log?limit=50');
+        const data = await resp.json();
+        const entries = data.entries || [];
+
+        if (entries.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 9;
+            td.className = 'loading';
+            td.textContent = 'No sync log entries';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+            return;
+        }
+
+        entries.forEach(entry => {
+            const tr = document.createElement('tr');
+            tr.appendChild(createTextCell(entry.session_id || '\u2014'));
+            tr.appendChild(createTextCell(entry.node_id || entry.target_node_id || '\u2014'));
+            tr.appendChild(createTextCell(entry.direction || '\u2014'));
+
+            // Priority cell
+            const priText = entry.priority !== undefined ? 'P' + entry.priority : '\u2014';
+            tr.appendChild(createTextCell(priText));
+
+            tr.appendChild(createTextCell(entry.items_synced !== undefined ? String(entry.items_synced) : '\u2014'));
+            tr.appendChild(createTextCell(entry.bytes_transferred !== undefined ? formatBytes(entry.bytes_transferred) : '\u2014'));
+            tr.appendChild(createTextCell(entry.duration_ms !== undefined ? (entry.duration_ms / 1000).toFixed(1) + 's' : '\u2014'));
+
+            // Status badge
+            const statusTd = document.createElement('td');
+            const st = (entry.status || '').toLowerCase();
+            const stMap = {
+                completed: 'badge-online',
+                failed: 'badge-offline',
+                pending: 'badge-warning',
+                sending: 'badge-warning',
+                partial: 'badge-warning',
+            };
+            statusTd.appendChild(createBadge(entry.status || '\u2014', stMap[st] || ''));
+            tr.appendChild(statusTd);
+
+            tr.appendChild(createTextCell(entry.created_at ? new Date(entry.created_at).toLocaleString() : '\u2014'));
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        console.error('Failed to load sync log:', e);
+    }
+}
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB'];
+    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    return (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+}
+
+function setupSyncTrigger() {
+    const btn = document.getElementById('sync-trigger-btn');
+    const input = document.getElementById('sync-trigger-input');
+    if (!btn || !input) return;
+    btn.addEventListener('click', () => triggerSync(input.value.trim()));
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') triggerSync(input.value.trim());
+    });
+}
+
+async function triggerSync(nodeId) {
+    if (!nodeId) return;
+    const container = document.getElementById('sync-trigger-result');
+    clearChildren(container);
+
+    const loading = document.createElement('p');
+    loading.className = 'loading';
+    loading.textContent = 'Triggering sync for ' + nodeId + '...';
+    container.appendChild(loading);
+
+    try {
+        const resp = await fetch('/api/v1/sync-relay/trigger/' + encodeURIComponent(nodeId), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirmed: true }),
+        });
+        const data = await resp.json();
+        clearChildren(container);
+
+        if (!resp.ok) {
+            const p = document.createElement('p');
+            p.style.color = 'var(--danger)';
+            p.textContent = data.detail || 'Sync trigger failed';
+            container.appendChild(p);
+            return;
+        }
+
+        const p = document.createElement('p');
+        p.style.color = 'var(--success)';
+        p.textContent = 'Sync triggered for ' + nodeId;
+        if (data.session_id) p.textContent += ' (session: ' + data.session_id + ')';
+        container.appendChild(p);
+
+        // Refresh sessions
+        await loadSyncSessions();
+        await loadSyncLog();
     } catch (e) {
         clearChildren(container);
         const p = document.createElement('p');
