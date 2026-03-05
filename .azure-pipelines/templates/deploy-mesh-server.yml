@@ -66,10 +66,13 @@ steps:
     displayName: 'SCP install script'
 
   # Step 5: Run install on target
+  # failOnStdErr: false — install.sh produces stderr from apt-get debconf
+  # warnings and systemctl-enable symlink messages; these are benign.
   - task: SSH@0
     inputs:
       sshEndpoint: '${{ parameters.sshServiceConnection }}'
       runOptions: 'inline'
+      failOnStdErr: false
       inline: |
         set -e
         VERSION="$(meshVersion)"
@@ -91,6 +94,7 @@ steps:
     inputs:
       sshEndpoint: '${{ parameters.sshServiceConnection }}'
       runOptions: 'inline'
+      failOnStdErr: false
       inline: |
         set -e
         RETRIES=${{ parameters.healthCheckRetries }}
@@ -117,6 +121,7 @@ steps:
     inputs:
       sshEndpoint: '${{ parameters.sshServiceConnection }}'
       runOptions: 'inline'
+      failOnStdErr: false
       inline: |
         rm -rf /tmp/jenn-mesh-deploy
     condition: always()
