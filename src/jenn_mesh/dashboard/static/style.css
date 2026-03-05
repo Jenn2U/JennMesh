@@ -61,7 +61,10 @@ body {
     gap: 0.5rem;
 }
 
-.logo-icon { font-size: 1.5rem; color: var(--primary); }
+.logo-avatar {
+    width: 32px; height: 32px; border-radius: 50%; object-fit: cover;
+    border: 2px solid var(--primary); flex-shrink: 0;
+}
 .logo h1 { font-family: 'DM Sans', sans-serif; font-size: 1.25rem; font-weight: 700; color: var(--primary-light); }
 .version { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--text-dim); }
 
