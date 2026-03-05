@@ -116,8 +116,9 @@ class SyncRelayManager:
         if old_hash == sv_hash:
             return False  # No change
 
-        # Check cooldown
-        last_sync = self._last_sync_by_node.get(node_id, 0)
+        # Check cooldown — sentinel must be -inf, not 0, because time.monotonic()
+        # can be < cooldown on fresh CI VMs (low uptime).
+        last_sync = self._last_sync_by_node.get(node_id, float("-inf"))
         elapsed = time.monotonic() - last_sync
         if elapsed < self.cooldown_minutes * 60:
             logger.debug(
