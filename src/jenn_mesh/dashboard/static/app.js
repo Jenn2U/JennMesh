@@ -1477,20 +1477,24 @@ async function loadAlertSummary() {
         countP.textContent = (data.alert_count || 0) + ' active alert(s)';
         card.appendChild(countP);
 
-        // Breakdown chips
+        // Breakdown chips — flatten nested breakdown (by_type, by_severity, etc.)
         const breakdown = data.breakdown || {};
-        const keys = Object.keys(breakdown);
-        if (keys.length > 0) {
-            const chips = document.createElement('div');
-            chips.className = 'breakdown-chips';
-            keys.forEach(k => {
-                const chip = document.createElement('span');
-                chip.className = 'breakdown-chip';
-                chip.textContent = k + ': ' + breakdown[k];
-                chips.appendChild(chip);
-            });
-            card.appendChild(chips);
-        }
+        const chips = document.createElement('div');
+        chips.className = 'breakdown-chips';
+        let hasChips = false;
+        Object.keys(breakdown).forEach(category => {
+            const inner = breakdown[category];
+            if (inner && typeof inner === 'object') {
+                Object.keys(inner).forEach(k => {
+                    const chip = document.createElement('span');
+                    chip.className = 'breakdown-chip';
+                    chip.textContent = k + ': ' + inner[k];
+                    chips.appendChild(chip);
+                    hasChips = true;
+                });
+            }
+        });
+        if (hasChips) card.appendChild(chips);
 
         container.appendChild(card);
     } catch (e) {
