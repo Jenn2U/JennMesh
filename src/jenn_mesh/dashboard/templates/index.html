@@ -151,6 +151,39 @@
                     <tr><td colspan="6" class="loading">Loading...</td></tr>
                 </tbody>
             </table>
+
+            <div class="section-header" style="margin-top:2rem">
+                <h3>AI Deployment Advisor</h3>
+                <div id="advisor-status" class="queue-summary"></div>
+            </div>
+            <div class="advisor-form">
+                <div class="advisor-form-row">
+                    <label>Terrain
+                        <select id="advisor-terrain">
+                            <option value="urban">Urban</option>
+                            <option value="suburban">Suburban</option>
+                            <option value="rural">Rural</option>
+                            <option value="mountainous">Mountainous</option>
+                            <option value="indoor">Indoor</option>
+                        </select>
+                    </label>
+                    <label>Nodes
+                        <input type="number" id="advisor-nodes" value="5" min="1" max="100">
+                    </label>
+                    <label>Power
+                        <select id="advisor-power">
+                            <option value="battery">Battery</option>
+                            <option value="solar">Solar</option>
+                            <option value="mains">Mains</option>
+                        </select>
+                    </label>
+                    <label>Coverage (m)
+                        <input type="number" id="advisor-coverage" value="5000" min="100" step="500">
+                    </label>
+                    <button id="advisor-btn" class="btn-primary">Get Recommendations</button>
+                </div>
+            </div>
+            <div id="advisor-result"></div>
         </section>
 
         <!-- Locator Tab -->
@@ -161,6 +194,7 @@
                 <button id="locate-btn" class="btn-primary">Locate</button>
             </div>
             <div id="locate-result"></div>
+            <div id="ai-reasoning-result"></div>
         </section>
 
         <!-- Alerts Tab -->
