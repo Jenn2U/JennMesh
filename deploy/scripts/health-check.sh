@@ -12,9 +12,10 @@
 
 set -uo pipefail
 
-GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; NC='\033[0m'
+GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 VERBOSE="${1:-}"
 FAILURES=0
+WARNINGS=0
 
 check() {
     local name="$1"
@@ -35,18 +36,54 @@ check() {
     fi
 }
 
+warn() {
+    local name="$1"
+    local detail="${2:-}"
+    echo -e "  ${CYAN}[SKIP]${NC} $name"
+    if [[ -n "$detail" ]]; then
+        echo -e "         ${YELLOW}$detail${NC}"
+    fi
+    WARNINGS=$((WARNINGS + 1))
+}
+
 echo "JennMesh Health Check"
 echo "====================="
 echo ""
 
 # ── Systemd Services ─────────────────────────────────────────────
+# Core services (broker, dashboard) are hard failures.
+# Conditional services (agent, sentry) are context-dependent:
+#   - agent: only a failure if radio hardware is present
+#   - sentry: only a failure if it's enabled on this host
 echo "Services:"
+
+# Detect radio hardware upfront (used for agent check)
+HAS_RADIO=false
+if ls /dev/meshtastic* /dev/ttyUSB* /dev/ttyACM* &>/dev/null 2>&1; then
+    HAS_RADIO=true
+fi
+
 for svc in jenn-mesh-broker jenn-mesh-dashboard jenn-mesh-agent jenn-sentry-agent; do
     if systemctl is-active --quiet "$svc" 2>/dev/null; then
         uptime=$(systemctl show "$svc" --property=ActiveEnterTimestamp --value 2>/dev/null || echo "unknown")
         check "$svc" "ok" "since $uptime"
     else
         status=$(systemctl is-active "$svc" 2>/dev/null || echo "not found")
+
+        # Context-aware: mesh-agent without radio is expected
+        if [[ "$svc" == "jenn-mesh-agent" && "$HAS_RADIO" == "false" ]]; then
+            warn "$svc" "no radio hardware — agent disabled until radio is plugged in"
+            continue
+        fi
+
+        # Context-aware: sentry managed by another venv or not enabled
+        if [[ "$svc" == "jenn-sentry-agent" ]]; then
+            if ! systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+                warn "$svc" "not enabled on this host"
+                continue
+            fi
+        fi
+
         check "$svc" "fail" "status: $status"
     fi
 done
@@ -81,6 +118,7 @@ fi
 echo ""
 
 # ── USB Radio Device ──────────────────────────────────────────────
+# Radio is hardware-dependent — missing radio is a warning, not a failure.
 echo "Hardware:"
 MESHTASTIC_DEVS=$(ls /dev/meshtastic* 2>/dev/null | wc -l)
 if [[ "$MESHTASTIC_DEVS" -gt 0 ]]; then
@@ -92,7 +130,7 @@ else
     if [[ "$TTY_DEVS" -gt 0 ]]; then
         check "Meshtastic USB device" "ok" "found /dev/tty* (udev symlink may be pending)"
     else
-        check "Meshtastic USB device" "fail" "no USB radio detected — plug in a Meshtastic radio"
+        warn "Meshtastic USB device" "no radio detected — plug in a Meshtastic radio when ready"
     fi
 fi
 
@@ -117,9 +155,16 @@ fi
 echo ""
 echo "====================="
 if [[ "$FAILURES" -le 0 ]]; then
-    echo -e "${GREEN}Health check: ALL PASSED${NC}"
+    if [[ "$WARNINGS" -gt 0 ]]; then
+        echo -e "${GREEN}Health check: PASSED${NC} (${WARNINGS} skipped)"
+    else
+        echo -e "${GREEN}Health check: ALL PASSED${NC}"
+    fi
     exit 0
 else
     echo -e "${RED}Health check: $FAILURES FAILURE(S)${NC}"
+    if [[ "$WARNINGS" -gt 0 ]]; then
+        echo -e "${YELLOW}  ($WARNINGS skipped — hardware/config dependent)${NC}"
+    fi
     exit 1
 fi

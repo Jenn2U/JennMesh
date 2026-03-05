@@ -319,7 +319,14 @@ systemctl start jenn-mesh-broker
 sleep 2
 systemctl start jenn-mesh-dashboard
 sleep 2
-systemctl start jenn-mesh-agent
+
+# Only start mesh-agent if radio hardware is detected — avoids crash-loop noise
+if ls /dev/meshtastic* /dev/ttyUSB* /dev/ttyACM* &>/dev/null 2>&1; then
+    systemctl start jenn-mesh-agent
+    echo "  Radio detected — started jenn-mesh-agent"
+else
+    echo "  No radio detected — jenn-mesh-agent not started (will auto-start when radio is plugged in)"
+fi
 sleep 2
 
 # Start sentry only if we manage it
