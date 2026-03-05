@@ -174,7 +174,7 @@ async function loadAlerts() {
         data.alerts.forEach(a => {
             const card = document.createElement('div');
             card.className = 'alert-card';
-            card.style.cssText = 'padding:0.75rem;margin-bottom:0.5rem;background:var(--bg-secondary);border-radius:6px;border-left:3px solid ' + (a.severity === 'critical' ? 'var(--danger)' : 'var(--warning)');
+            card.style.cssText = 'padding:0.75rem;margin-bottom:0.5rem;background:var(--surface);border-radius:6px;border-left:3px solid ' + (a.severity === 'critical' ? 'var(--error)' : 'var(--warning)');
 
             const header = document.createElement('strong');
             header.textContent = a.node_id + ' \u2014 ' + a.alert_type + ' ';
@@ -182,7 +182,7 @@ async function loadAlerts() {
             card.appendChild(createBadge(a.severity, a.severity === 'critical' ? 'badge-offline' : 'badge-warning'));
 
             const msg = document.createElement('p');
-            msg.style.cssText = 'color:var(--text-secondary);font-size:0.8125rem;margin-top:0.25rem';
+            msg.style.cssText = 'color:var(--text-muted);font-size:0.8125rem;margin-top:0.25rem';
             msg.textContent = a.message;
             card.appendChild(msg);
 
@@ -211,13 +211,13 @@ async function loadConfigData() {
         } else {
             data.templates.forEach(t => {
                 const div = document.createElement('div');
-                div.style.cssText = 'padding:0.5rem 0.75rem;background:var(--bg-secondary);border-radius:6px;margin-bottom:0.5rem';
+                div.style.cssText = 'padding:0.5rem 0.75rem;background:var(--surface);border-radius:6px;margin-bottom:0.5rem';
                 const name = document.createElement('strong');
-                name.style.color = 'var(--teal-light)';
+                name.style.color = 'var(--primary-light)';
                 name.textContent = t.role;
                 div.appendChild(name);
                 const hash = document.createElement('code');
-                hash.style.cssText = 'margin-left:1rem;color:var(--text-muted);font-size:0.75rem';
+                hash.style.cssText = 'margin-left:1rem;color:var(--text-dim);font-size:0.75rem';
                 hash.textContent = t.hash ? t.hash.substring(0, 16) + '...' : '\u2014';
                 div.appendChild(hash);
                 container.appendChild(div);
@@ -315,7 +315,7 @@ async function showRemediationPreview(nodeId) {
 
         if (data.error) {
             const err = document.createElement('p');
-            err.style.color = 'var(--danger)';
+            err.style.color = 'var(--error)';
             err.textContent = data.error;
             modalBody.appendChild(err);
             return;
@@ -354,7 +354,7 @@ async function showRemediationPreview(nodeId) {
     } catch (e) {
         clearChildren(modalBody);
         const err = document.createElement('p');
-        err.style.color = 'var(--danger)';
+        err.style.color = 'var(--error)';
         err.textContent = 'Error: ' + e.message;
         modalBody.appendChild(err);
     }
@@ -590,7 +590,7 @@ async function locateNode(nodeId) {
 
         if (!data.is_found) {
             const p = document.createElement('p');
-            p.style.color = 'var(--danger)';
+            p.style.color = 'var(--error)';
             p.textContent = 'No position data for ' + nodeId;
             container.appendChild(p);
             return;
@@ -598,10 +598,10 @@ async function locateNode(nodeId) {
 
         const pos = data.last_known_position;
         const panel = document.createElement('div');
-        panel.style.cssText = 'background:var(--bg-secondary);padding:1rem;border-radius:8px;margin-top:0.5rem';
+        panel.style.cssText = 'background:var(--surface);padding:1rem;border-radius:8px;margin-top:0.5rem';
 
         const title = document.createElement('h3');
-        title.style.cssText = 'color:var(--teal-light);margin:0 0 0.75rem';
+        title.style.cssText = 'color:var(--primary-light);margin:0 0 0.75rem';
         title.textContent = 'Location Result';
         panel.appendChild(title);
 
@@ -670,7 +670,7 @@ async function locateNode(nodeId) {
     } catch (e) {
         clearChildren(container);
         const p = document.createElement('p');
-        p.style.color = 'var(--danger)';
+        p.style.color = 'var(--error)';
         p.textContent = 'Error: ' + e.message;
         container.appendChild(p);
     }
@@ -889,7 +889,7 @@ async function triggerSync(nodeId) {
 
         if (!resp.ok) {
             const p = document.createElement('p');
-            p.style.color = 'var(--danger)';
+            p.style.color = 'var(--error)';
             p.textContent = data.detail || 'Sync trigger failed';
             container.appendChild(p);
             return;
@@ -907,7 +907,7 @@ async function triggerSync(nodeId) {
     } catch (e) {
         clearChildren(container);
         const p = document.createElement('p');
-        p.style.color = 'var(--danger)';
+        p.style.color = 'var(--error)';
         p.textContent = 'Error: ' + e.message;
         container.appendChild(p);
     }
@@ -968,7 +968,7 @@ async function loadActiveFailovers() {
             const deps = evt.dependent_nodes || [];
             if (deps.length > 0) {
                 const depLabel = document.createElement('div');
-                depLabel.style.cssText = 'font-size:0.75rem;color:var(--text-muted);margin-bottom:0.25rem';
+                depLabel.style.cssText = 'font-size:0.75rem;color:var(--text-dim);margin-bottom:0.25rem';
                 depLabel.textContent = 'Dependent: ' + deps.join(', ');
                 card.appendChild(depLabel);
             }
@@ -1113,7 +1113,7 @@ async function assessNode(nodeId) {
 
         if (!resp.ok) {
             const p = document.createElement('p');
-            p.style.color = 'var(--danger)';
+            p.style.color = 'var(--error)';
             p.textContent = data.detail || 'Assessment failed';
             container.appendChild(p);
             return;
@@ -1200,7 +1200,7 @@ async function assessNode(nodeId) {
     } catch (e) {
         clearChildren(container);
         const p = document.createElement('p');
-        p.style.color = 'var(--danger)';
+        p.style.color = 'var(--error)';
         p.textContent = 'Error: ' + e.message;
         container.appendChild(p);
     }
@@ -1325,7 +1325,7 @@ async function requestRecommendation() {
 
         if (!resp.ok) {
             const p = document.createElement('p');
-            p.style.color = 'var(--danger)';
+            p.style.color = 'var(--error)';
             p.textContent = data.detail || 'Recommendation failed';
             container.appendChild(p);
             return;
@@ -1346,7 +1346,7 @@ async function requestRecommendation() {
         // Summary
         if (data.summary) {
             const sumP = document.createElement('p');
-            sumP.style.cssText = 'color:var(--text-secondary);font-size:0.875rem;margin-bottom:0.5rem';
+            sumP.style.cssText = 'color:var(--text-muted);font-size:0.875rem;margin-bottom:0.5rem';
             sumP.textContent = data.summary;
             panel.appendChild(sumP);
         }
@@ -1376,7 +1376,7 @@ async function requestRecommendation() {
             panel.appendChild(pwrH);
 
             const pwrP = document.createElement('p');
-            pwrP.style.cssText = 'font-family:"JetBrains Mono",monospace;font-size:0.8125rem;color:var(--text-secondary)';
+            pwrP.style.cssText = 'font-family:"JetBrains Mono",monospace;font-size:0.8125rem;color:var(--text-muted)';
             const ps = data.power_settings;
             const parts = [];
             if (ps.tx_power !== undefined) parts.push('TX: ' + ps.tx_power + ' dBm');
@@ -1392,7 +1392,7 @@ async function requestRecommendation() {
             panel.appendChild(chH);
 
             const chP = document.createElement('p');
-            chP.style.cssText = 'font-family:"JetBrains Mono",monospace;font-size:0.8125rem;color:var(--text-secondary)';
+            chP.style.cssText = 'font-family:"JetBrains Mono",monospace;font-size:0.8125rem;color:var(--text-muted)';
             const cc = data.channel_config;
             const cParts = [];
             if (cc.modem_preset) cParts.push('Preset: ' + cc.modem_preset);
@@ -1439,7 +1439,7 @@ async function requestRecommendation() {
     } catch (e) {
         clearChildren(container);
         const p = document.createElement('p');
-        p.style.color = 'var(--danger)';
+        p.style.color = 'var(--error)';
         p.textContent = 'Error: ' + e.message;
         container.appendChild(p);
     } finally {
@@ -1475,7 +1475,7 @@ async function loadAlertSummary() {
 
         // Count
         const countP = document.createElement('p');
-        countP.style.cssText = 'font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.5rem';
+        countP.style.cssText = 'font-size:0.8125rem;color:var(--text-dim);margin-bottom:0.5rem';
         countP.textContent = (data.alert_count || 0) + ' active alert(s)';
         card.appendChild(countP);
 
@@ -1783,7 +1783,7 @@ async function loadAnomalyData() {
                 aiDiv.appendChild(document.createTextNode(' \u2014 ' + ai.summary));
                 if (ai.recommended_action) {
                     const rec = document.createElement('p');
-                    rec.style.cssText = 'margin-top:0.25rem;font-size:0.8125rem;color:var(--text-muted)';
+                    rec.style.cssText = 'margin-top:0.25rem;font-size:0.8125rem;color:var(--text-dim)';
                     rec.textContent = '\u2192 ' + ai.recommended_action;
                     aiDiv.appendChild(rec);
                 }
@@ -2018,7 +2018,7 @@ async function loadAiReasoning(nodeId) {
 
         if (!resp.ok) {
             const p = document.createElement('p');
-            p.style.color = 'var(--text-muted)';
+            p.style.color = 'var(--text-dim)';
             p.textContent = 'AI reasoning unavailable';
             container.appendChild(p);
             return;
@@ -2056,7 +2056,7 @@ async function loadAiReasoning(nodeId) {
             panel.appendChild(locH);
 
             const locP = document.createElement('p');
-            locP.style.cssText = 'font-family:"JetBrains Mono",monospace;font-size:0.8125rem;color:var(--text-secondary)';
+            locP.style.cssText = 'font-family:"JetBrains Mono",monospace;font-size:0.8125rem;color:var(--text-muted)';
             locP.textContent = data.probable_location;
             panel.appendChild(locP);
         }
@@ -2068,7 +2068,7 @@ async function loadAiReasoning(nodeId) {
             panel.appendChild(resH);
 
             const resP = document.createElement('p');
-            resP.style.cssText = 'font-size:0.875rem;color:var(--text-secondary);line-height:1.6;white-space:pre-wrap';
+            resP.style.cssText = 'font-size:0.875rem;color:var(--text-muted);line-height:1.6;white-space:pre-wrap';
             resP.textContent = data.reasoning;
             panel.appendChild(resP);
         }
@@ -2094,7 +2094,7 @@ async function loadAiReasoning(nodeId) {
     } catch (e) {
         clearChildren(container);
         const p = document.createElement('p');
-        p.style.color = 'var(--text-muted)';
+        p.style.color = 'var(--text-dim)';
         p.textContent = 'AI reasoning unavailable';
         container.appendChild(p);
     }
