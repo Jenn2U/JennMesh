@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 # Default Ollama configuration (reuses JennEdge's Ollama on same hardware)
 DEFAULT_HOST = "http://localhost:11434"
 DEFAULT_MODEL = "qwen3:4b"
+DEFAULT_CODE_MODEL = "qwen2.5-coder:7b"
 
 
 @dataclass
@@ -73,11 +74,14 @@ class OllamaClient:
         self,
         host: Optional[str] = None,
         model: Optional[str] = None,
+        code_model: Optional[str] = None,
     ):
         self._host = host or os.environ.get("OLLAMA_HOST", DEFAULT_HOST)
         self._model = model or os.environ.get("OLLAMA_MODEL", DEFAULT_MODEL)
+        self._code_model = code_model or os.environ.get("OLLAMA_CODE_MODEL", DEFAULT_CODE_MODEL)
         self._client: Any = None  # Lazy-loaded ollama.AsyncClient
         self._available: Optional[bool] = None  # Cached availability
+        self._code_model_available: Optional[bool] = None
 
     @property
     def host(self) -> str:
@@ -86,6 +90,10 @@ class OllamaClient:
     @property
     def model(self) -> str:
         return self._model
+
+    @property
+    def code_model(self) -> str:
+        return self._code_model
 
     def _get_client(self) -> Any:
         """Lazy-load the ollama AsyncClient (import-time safety)."""
@@ -280,13 +288,107 @@ class OllamaClient:
             confidence=result.get("confidence", "low"),
         )
 
+    async def _is_code_model_available(self) -> bool:
+        """Check if the code model is available on Ollama."""
+        if self._code_model_available is not None:
+            return self._code_model_available
+
+        client = self._get_client()
+        if client is None:
+            self._code_model_available = False
+            return False
+
+        try:
+            response = await client.list()
+            models = [m.get("name", "") if isinstance(m, dict) else str(m) for m in response.models]
+            model_base = self._code_model.split(":")[0]
+            self._code_model_available = any(model_base in str(m) for m in models)
+            return self._code_model_available
+        except Exception:
+            self._code_model_available = False
+            return False
+
+    async def _chat_code(self, system_prompt: str, user_message: str) -> Optional[str]:
+        """Chat using the code model. Falls back to None if unavailable."""
+        if not await self._is_code_model_available():
+            return None
+
+        client = self._get_client()
+        if client is None:
+            return None
+
+        try:
+            response = await client.chat(
+                model=self._code_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+            )
+            content = response.get("message", {}).get("content", "")
+            return content.strip()
+        except Exception as exc:
+            logger.error("Code model chat failed: %s", type(exc).__name__)
+            return None
+
+    async def generate_config_yaml(self, deployment_context: dict) -> Optional[str]:
+        """Generate a Meshtastic YAML configuration using the code model.
+
+        Uses qwen2.5-coder for structured YAML output (better at code/config
+        generation than the general model). Falls back to None when the code
+        model is unavailable.
+
+        Args:
+            deployment_context: Dict with keys: node_role, region,
+                channel_name, hop_limit, power_level, position_enabled
+        """
+        system_prompt = (
+            "You are a Meshtastic configuration expert. Generate a valid "
+            "Meshtastic YAML configuration file based on the deployment context. "
+            "Output ONLY valid YAML with no markdown fences or explanations. "
+            "Include sections: lora, channels, device, position, power as needed."
+        )
+        user_msg = json.dumps(deployment_context, indent=2, default=str)
+        return await self._chat_code(system_prompt, user_msg)
+
+    async def analyze_recovery_script(self, script_content: str) -> Optional[dict[str, Any]]:
+        """Analyze a recovery script for safety before execution.
+
+        Uses the code model to check for dangerous commands, permission issues,
+        and side effects. Falls back to None when the code model is unavailable.
+
+        Args:
+            script_content: Shell script to analyze
+
+        Returns:
+            Dict with keys: safe (bool), risks (list[str]), suggestions (list[str])
+        """
+        system_prompt = (
+            "You are a Linux system administration safety analyst. Analyze this "
+            "shell script for safety concerns. Check for: dangerous commands "
+            "(rm -rf, dd, mkfs), permission escalation, network access, data "
+            "destruction, unintended side effects. Respond in JSON with keys: "
+            "safe (bool), risks (list of strings), suggestions (list of strings)."
+        )
+        raw = await self._chat_code(system_prompt, script_content)
+        if raw is None:
+            return None
+        try:
+            return json.loads(_extract_json(raw))
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("Code model returned non-JSON for script analysis")
+            return None
+
     async def health_info(self) -> dict[str, Any]:
         """Return health/status info for the health endpoint."""
         available = await self.is_available()
+        code_available = await self._is_code_model_available()
         return {
             "available": available,
             "host": self._host,
             "model": self._model,
+            "code_model": self._code_model,
+            "code_model_available": code_available,
         }
 
 
