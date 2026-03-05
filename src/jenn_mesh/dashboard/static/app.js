@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupFailoverAssess();
     setupAdvisor();
     setupWatchdogTrigger();
+    initThemeToggle();
     setInterval(() => {
         loadHealthData();
         loadFleetData();
@@ -2098,4 +2099,38 @@ async function loadAiReasoning(nodeId) {
         p.textContent = 'AI reasoning unavailable';
         container.appendChild(p);
     }
+}
+
+// --- Theme Toggle ---
+
+function initThemeToggle() {
+    const btn = document.getElementById('theme-toggle');
+    if (!btn) return;
+    const moon = document.getElementById('theme-icon-moon');
+    const sun = document.getElementById('theme-icon-sun');
+
+    function applyIcons(theme) {
+        if (!moon || !sun) return;
+        moon.style.display = theme === 'dark' ? 'none' : '';
+        sun.style.display = theme === 'dark' ? '' : 'none';
+    }
+
+    applyIcons(document.documentElement.getAttribute('data-theme') || 'dark');
+
+    btn.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme');
+        const next = current === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('jennmesh-theme', next);
+        applyIcons(next);
+    });
+
+    window.matchMedia('(prefers-color-scheme: dark)')
+        .addEventListener('change', (e) => {
+            if (!localStorage.getItem('jennmesh-theme')) {
+                const t = e.matches ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-theme', t);
+                applyIcons(t);
+            }
+        });
 }

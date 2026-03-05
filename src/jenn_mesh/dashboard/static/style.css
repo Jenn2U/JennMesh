@@ -12,6 +12,28 @@
     --radius: 10px; --radius-sm: 6px;
     --shadow: 0 1px 3px rgba(0,0,0,0.3); --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
     --transition-fast: 0.15s ease; --transition-normal: 0.2s ease;
+    color-scheme: dark;
+}
+
+html[data-theme="light"] {
+    --bg: #FAFAF7; --surface: #ffffff; --surface-2: #f5f5f4; --border: #E7E5E4;
+    --text: #1C1917; --text-muted: #78716C; --text-dim: #a8a29e;
+    --shadow: 0 1px 3px rgba(28,25,23,0.08); --shadow-md: 0 4px 12px rgba(28,25,23,0.1);
+    --success-bg: rgba(34, 197, 94, 0.1); --warning-bg: rgba(217, 119, 6, 0.1);
+    --error-bg: rgba(220, 38, 38, 0.1); --info-bg: rgba(59, 130, 246, 0.1);
+    color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
