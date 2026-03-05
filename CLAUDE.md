@@ -4,10 +4,10 @@
 
 JennMesh is the centralized Meshtastic LoRa radio fleet management service for the JENN Intelligent Ecosystem. It handles initial radio provisioning, firmware tracking, channel/security configuration, MQTT relay setup, fleet health monitoring, and lost node location.
 
-**Version**: 0.6.0
+**Version**: 0.7.0
 **Language**: Python 3.11+
 **Type**: Standalone mesh management service with web dashboard + agent daemon + CLI tools
-**Tests**: 1536 (pytest) — target 80%+
+**Tests**: 1744 (pytest) — target 80%+
 
 ## Architecture
 
@@ -126,7 +126,7 @@ JennMesh manages radios but does NOT depend on these projects at runtime:
 | `src/jenn_mesh/dashboard/routes/notifications.py` | 9 API endpoints (channel CRUD + test + rule CRUD) |
 | `src/jenn_mesh/dashboard/routes/partitions.py` | 3 API endpoints (status, events, event detail) |
 | `src/jenn_mesh/dashboard/routes/bulk_ops.py` | 5 API endpoints (preview, execute, progress, cancel, list) |
-| `src/jenn_mesh/db.py` | SQLite WAL schema v14 (31 tables, ~134 DB methods) |
+| `src/jenn_mesh/db.py` | SQLite WAL schema v15 (36 tables, ~164 DB methods) |
 | `configs/*.yaml` | Golden Meshtastic config templates per device role |
 | `deploy/systemd/*.service` | 4 systemd unit files (broker, dashboard, agent, sentry) |
 | `deploy/scripts/install.sh` | 9-phase idempotent installer for ARM64 Linux |
@@ -800,6 +800,53 @@ Batch operations across the fleet with preview (dry-run), confirmation gate, pro
 | `notification_rules` | Alert → channel routing | 5 CRUD + get_channels_for_alert |
 | `partition_events` | Network split/merge history | 6 |
 | `bulk_operations` | Batch fleet actions | 6 |
+
+## v0.7.0 — Field Operations & Interop
+
+### TAK Server Integration (MESH-065, `src/jenn_mesh/core/tak_gateway.py`)
+
+Translates mesh node GPS positions to Cursor on Target (CoT) XML for ATAK/WinTAK interop.
+
+- Bidirectional CoT XML parse/generate with HMAC-based callsign generation
+- Configurable server host/port/TLS/callsign prefix
+- 6 API endpoints (`/tak/*`): config CRUD, push positions, event history
+
+### Team Communication via Mesh (MESH-043, `src/jenn_mesh/core/team_comms.py`)
+
+Structured text messaging over LoRa mesh Channel 2.
+
+- Wire format: `[TEAM:{channel}] message` (220-char LoRa MTU limit)
+- Broadcast/team/direct channels with delivery lifecycle (pending→sending→sent→delivered)
+- Safety gate: requires `confirmed=True`
+- 5 API endpoints (`/team-comms/*`)
+
+### Mesh-Based Asset Tracking (MESH-053, `src/jenn_mesh/core/asset_tracker.py`)
+
+GPS trail enrichment for vehicles, equipment, personnel, drones, sensors.
+
+- Haversine distance, speed, bearing calculations; automatic status (active/idle/out_of_range)
+- Zone/team/project filtering
+- 8 API endpoints (`/assets/*`)
+
+### JennEdge Cross-Reference (MESH-057, `src/jenn_mesh/core/edge_association.py`)
+
+Maps JennEdge devices ↔ mesh radios for combined status queries.
+
+- "Edge offline but radio transmitting" detection; stale association detection (>1hr)
+- 8 API endpoints (`/edge-associations/*`)
+
+### Schema v15 (5 New Tables, ~30 New Methods)
+| Table | Purpose |
+|-------|---------|
+| `team_messages` | Mesh text messages with delivery tracking |
+| `tak_config` | TAK server connection settings |
+| `tak_events` | CoT event history |
+| `assets` | Tracked assets with GPS trail |
+| `edge_associations` | JennEdge ↔ mesh radio mappings |
+
+### Dashboard (v0.7.0)
+- 19 OpenAPI tag groups, 171 API routes
+- Health endpoint: 17 component checks
 
 ## CLI Commands
 
