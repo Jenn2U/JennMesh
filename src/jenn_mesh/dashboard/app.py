@@ -92,6 +92,14 @@ def create_app(db: Optional[MeshDatabase] = None) -> FastAPI:
     Returns:
         Configured FastAPI app.
     """
+    # Initialize OpenTelemetry (no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset)
+    try:
+        from jenn_mesh.dashboard.telemetry import init_telemetry
+
+        init_telemetry()
+    except Exception:
+        pass  # telemetry is best-effort — never block app startup
+
     root_path = os.environ.get("ROOT_PATH", "")
 
     app = FastAPI(
