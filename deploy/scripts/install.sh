@@ -243,22 +243,53 @@ echo -e "  ${GREEN}Udev rules installed — Meshtastic radios will appear as /de
 # ── Phase 8: Install Systemd Services + Cron ─────────────────────
 echo -e "${BOLD}[8/9] Installing systemd services...${NC}"
 
-# Stop existing services gracefully
-for svc in jenn-mesh-agent jenn-mesh-dashboard jenn-mesh-broker jenn-sentry-agent; do
+# Stop existing JennMesh services gracefully
+for svc in jenn-mesh-agent jenn-mesh-dashboard jenn-mesh-broker; do
     if systemctl is-active --quiet "$svc" 2>/dev/null; then
         systemctl stop "$svc"
         echo "  Stopped $svc"
     fi
 done
 
-# Install service files
-cp "$INSTALL_DIR/deploy/systemd/"*.service /etc/systemd/system/
+# Only stop sentry if we manage it (binary exists in JennMesh venv)
+if [[ -x "$INSTALL_DIR/venv/bin/jenn-sentry-agent" ]] || ! systemctl is-enabled --quiet jenn-sentry-agent 2>/dev/null; then
+    if systemctl is-active --quiet jenn-sentry-agent 2>/dev/null; then
+        systemctl stop jenn-sentry-agent
+        echo "  Stopped jenn-sentry-agent"
+    fi
+else
+    echo "  Sentry agent preserved (managed by another venv)"
+fi
+
+# Install service files — core JennMesh services
+for svc in jenn-mesh-broker jenn-mesh-dashboard jenn-mesh-agent; do
+    cp "$INSTALL_DIR/deploy/systemd/${svc}.service" /etc/systemd/system/
+done
+
+# Sentry agent: only install service if binary exists in JennMesh venv.
+# On shared hosts (e.g., OrangePi with JennEdge), sentry runs from the
+# JennEdge venv — overwriting its service unit breaks it.
+SENTRY_BIN="$INSTALL_DIR/venv/bin/jenn-sentry-agent"
+if [[ -x "$SENTRY_BIN" ]]; then
+    cp "$INSTALL_DIR/deploy/systemd/jenn-sentry-agent.service" /etc/systemd/system/
+    echo "  Sentry service installed (binary found in JennMesh venv)"
+elif systemctl is-enabled --quiet jenn-sentry-agent 2>/dev/null; then
+    echo "  Sentry service preserved (managed by another venv)"
+else
+    cp "$INSTALL_DIR/deploy/systemd/jenn-sentry-agent.service" /etc/systemd/system/
+    echo "  Sentry service installed (fresh install)"
+fi
+
 systemctl daemon-reload
 
 # Enable services to start on boot
-for svc in jenn-mesh-broker jenn-mesh-dashboard jenn-mesh-agent jenn-sentry-agent; do
+for svc in jenn-mesh-broker jenn-mesh-dashboard jenn-mesh-agent; do
     systemctl enable "$svc"
 done
+# Only enable sentry if we installed it or it's not yet enabled
+if [[ -x "$SENTRY_BIN" ]] || ! systemctl is-enabled --quiet jenn-sentry-agent 2>/dev/null; then
+    systemctl enable jenn-sentry-agent
+fi
 echo "  Services enabled for boot"
 
 # Install nightly backup cron
@@ -290,7 +321,15 @@ systemctl start jenn-mesh-dashboard
 sleep 2
 systemctl start jenn-mesh-agent
 sleep 2
-systemctl start jenn-sentry-agent
+
+# Start sentry only if we manage it
+SENTRY_BIN="$INSTALL_BASE/current/venv/bin/jenn-sentry-agent"
+if [[ -x "$SENTRY_BIN" ]]; then
+    systemctl start jenn-sentry-agent
+elif ! systemctl is-active --quiet jenn-sentry-agent 2>/dev/null; then
+    # Sentry managed by another venv — restart it if it was stopped
+    systemctl start jenn-sentry-agent 2>/dev/null || true
+fi
 
 echo "  Waiting for services to stabilize..."
 sleep 5
