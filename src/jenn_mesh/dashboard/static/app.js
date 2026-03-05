@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupModal();
     setupSyncTrigger();
     setupFailoverAssess();
+    setupAdvisor();
     setInterval(() => {
         loadHealthData();
         loadFleetData();
@@ -657,6 +658,9 @@ async function locateNode(nodeId) {
             table.appendChild(tbody);
             container.appendChild(table);
         }
+
+        // Trigger AI reasoning in background
+        loadAiReasoning(nodeId);
     } catch (e) {
         clearChildren(container);
         const p = document.createElement('p');
@@ -1253,5 +1257,287 @@ async function cancelFailover(eventId, btn) {
         console.error('Failover cancel error:', e);
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Cancel'; }
+    }
+}
+
+// --- Provisioning Advisor (MESH-032) ---
+
+function setupAdvisor() {
+    const btn = document.getElementById('advisor-btn');
+    if (!btn) return;
+    btn.addEventListener('click', () => requestRecommendation());
+    loadAdvisorStatus();
+}
+
+async function loadAdvisorStatus() {
+    const statusEl = document.getElementById('advisor-status');
+    if (!statusEl) return;
+
+    try {
+        const resp = await fetch('/api/v1/advisor/status');
+        const data = await resp.json();
+        const parts = [];
+        if (data.ollama_available) parts.push('Ollama connected');
+        else parts.push('Deterministic mode');
+        if (data.model) parts.push(data.model);
+        statusEl.textContent = parts.join(' \u00B7 ');
+    } catch (e) {
+        statusEl.textContent = 'Unavailable';
+    }
+}
+
+async function requestRecommendation() {
+    const btn = document.getElementById('advisor-btn');
+    const container = document.getElementById('advisor-result');
+    clearChildren(container);
+
+    const terrain = document.getElementById('advisor-terrain').value;
+    const numNodes = parseInt(document.getElementById('advisor-nodes').value, 10) || 5;
+    const powerSource = document.getElementById('advisor-power').value;
+    const coverage = parseFloat(document.getElementById('advisor-coverage').value) || 5000;
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Analyzing...'; }
+
+    const loading = document.createElement('p');
+    loading.className = 'loading';
+    loading.textContent = 'Generating deployment recommendations...';
+    container.appendChild(loading);
+
+    try {
+        const resp = await fetch('/api/v1/advisor/recommend', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                terrain: terrain,
+                num_nodes: numNodes,
+                power_source: powerSource,
+                desired_coverage_m: coverage,
+            }),
+        });
+        const data = await resp.json();
+        clearChildren(container);
+
+        if (!resp.ok) {
+            const p = document.createElement('p');
+            p.style.color = 'var(--danger)';
+            p.textContent = data.detail || 'Recommendation failed';
+            container.appendChild(p);
+            return;
+        }
+
+        const panel = document.createElement('div');
+        panel.className = 'recommendation-panel';
+
+        // Source badge
+        const sourceH = document.createElement('h4');
+        sourceH.textContent = 'Source ';
+        const srcBadge = document.createElement('span');
+        srcBadge.className = 'source-badge ' + (data.source || 'deterministic');
+        srcBadge.textContent = data.source || 'deterministic';
+        sourceH.appendChild(srcBadge);
+        panel.appendChild(sourceH);
+
+        // Summary
+        if (data.summary) {
+            const sumP = document.createElement('p');
+            sumP.style.cssText = 'color:var(--text-secondary);font-size:0.875rem;margin-bottom:0.5rem';
+            sumP.textContent = data.summary;
+            panel.appendChild(sumP);
+        }
+
+        // Recommended roles
+        const roles = data.recommended_roles || [];
+        if (roles.length > 0) {
+            const rolesH = document.createElement('h4');
+            rolesH.textContent = 'Recommended Roles (' + roles.length + ')';
+            panel.appendChild(rolesH);
+
+            const roleList = document.createElement('div');
+            roleList.className = 'node-list';
+            roles.forEach(r => {
+                const chip = document.createElement('span');
+                chip.className = 'node-chip';
+                chip.textContent = typeof r === 'string' ? r : (r.role || r.node || JSON.stringify(r));
+                roleList.appendChild(chip);
+            });
+            panel.appendChild(roleList);
+        }
+
+        // Power settings
+        if (data.power_settings) {
+            const pwrH = document.createElement('h4');
+            pwrH.textContent = 'Power Settings';
+            panel.appendChild(pwrH);
+
+            const pwrP = document.createElement('p');
+            pwrP.style.cssText = 'font-family:"JetBrains Mono",monospace;font-size:0.8125rem;color:var(--text-secondary)';
+            const ps = data.power_settings;
+            const parts = [];
+            if (ps.tx_power !== undefined) parts.push('TX: ' + ps.tx_power + ' dBm');
+            if (ps.region) parts.push('Region: ' + ps.region);
+            pwrP.textContent = parts.length ? parts.join(' \u00B7 ') : JSON.stringify(ps);
+            panel.appendChild(pwrP);
+        }
+
+        // Channel config
+        if (data.channel_config) {
+            const chH = document.createElement('h4');
+            chH.textContent = 'Channel Config';
+            panel.appendChild(chH);
+
+            const chP = document.createElement('p');
+            chP.style.cssText = 'font-family:"JetBrains Mono",monospace;font-size:0.8125rem;color:var(--text-secondary)';
+            const cc = data.channel_config;
+            const cParts = [];
+            if (cc.modem_preset) cParts.push('Preset: ' + cc.modem_preset);
+            if (cc.name) cParts.push('Name: ' + cc.name);
+            chP.textContent = cParts.length ? cParts.join(' \u00B7 ') : JSON.stringify(cc);
+            panel.appendChild(chP);
+        }
+
+        // Deployment order
+        const order = data.deployment_order || [];
+        if (order.length > 0) {
+            const orderH = document.createElement('h4');
+            orderH.textContent = 'Deployment Order';
+            panel.appendChild(orderH);
+
+            const orderList = document.createElement('div');
+            orderList.className = 'node-list';
+            order.forEach((item, i) => {
+                const chip = document.createElement('span');
+                chip.className = 'node-chip';
+                chip.textContent = (i + 1) + '. ' + (typeof item === 'string' ? item : JSON.stringify(item));
+                orderList.appendChild(chip);
+            });
+            panel.appendChild(orderList);
+        }
+
+        // Warnings
+        const warnings = data.warnings || [];
+        if (warnings.length > 0) {
+            const warnH = document.createElement('h4');
+            warnH.style.color = 'var(--warning)';
+            warnH.textContent = 'Warnings';
+            panel.appendChild(warnH);
+
+            warnings.forEach(w => {
+                const wP = document.createElement('p');
+                wP.style.cssText = 'color:var(--warning);font-size:0.8125rem;margin-bottom:0.125rem';
+                wP.textContent = '\u26A0 ' + w;
+                panel.appendChild(wP);
+            });
+        }
+
+        container.appendChild(panel);
+    } catch (e) {
+        clearChildren(container);
+        const p = document.createElement('p');
+        p.style.color = 'var(--danger)';
+        p.textContent = 'Error: ' + e.message;
+        container.appendChild(p);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Get Recommendations'; }
+    }
+}
+
+// --- Lost Node AI Reasoning (MESH-033) ---
+
+async function loadAiReasoning(nodeId) {
+    const container = document.getElementById('ai-reasoning-result');
+    if (!container) return;
+    clearChildren(container);
+
+    const loading = document.createElement('p');
+    loading.className = 'loading';
+    loading.textContent = 'Running AI reasoning for ' + nodeId + '...';
+    container.appendChild(loading);
+
+    try {
+        const resp = await fetch('/api/v1/locate/' + encodeURIComponent(nodeId) + '/ai-reasoning');
+        const data = await resp.json();
+        clearChildren(container);
+
+        if (!resp.ok) {
+            const p = document.createElement('p');
+            p.style.color = 'var(--text-muted)';
+            p.textContent = 'AI reasoning unavailable';
+            container.appendChild(p);
+            return;
+        }
+
+        const panel = document.createElement('div');
+        panel.className = 'reasoning-panel';
+
+        // Header with source and confidence
+        const headerH = document.createElement('h4');
+        headerH.textContent = 'AI Reasoning ';
+        const srcBadge = document.createElement('span');
+        srcBadge.className = 'source-badge ' + (data.source || 'deterministic');
+        srcBadge.textContent = data.source || 'deterministic';
+        headerH.appendChild(srcBadge);
+        panel.appendChild(headerH);
+
+        // Confidence
+        const confP = document.createElement('p');
+        confP.style.marginBottom = '0.5rem';
+        const confLabel = document.createElement('strong');
+        confLabel.textContent = 'Confidence: ';
+        confP.appendChild(confLabel);
+        const confBadge = document.createElement('span');
+        const conf = data.confidence || 'low';
+        confBadge.className = 'confidence-badge ' + conf;
+        confBadge.textContent = conf;
+        confP.appendChild(confBadge);
+        panel.appendChild(confP);
+
+        // Probable location
+        if (data.probable_location) {
+            const locH = document.createElement('h4');
+            locH.textContent = 'Probable Location';
+            panel.appendChild(locH);
+
+            const locP = document.createElement('p');
+            locP.style.cssText = 'font-family:"JetBrains Mono",monospace;font-size:0.8125rem;color:var(--text-secondary)';
+            locP.textContent = data.probable_location;
+            panel.appendChild(locP);
+        }
+
+        // Reasoning
+        if (data.reasoning) {
+            const resH = document.createElement('h4');
+            resH.textContent = 'Analysis';
+            panel.appendChild(resH);
+
+            const resP = document.createElement('p');
+            resP.style.cssText = 'font-size:0.875rem;color:var(--text-secondary);line-height:1.6;white-space:pre-wrap';
+            resP.textContent = data.reasoning;
+            panel.appendChild(resP);
+        }
+
+        // Search recommendations
+        const recs = data.search_recommendations || [];
+        if (recs.length > 0) {
+            const recH = document.createElement('h4');
+            recH.textContent = 'Search Recommendations';
+            panel.appendChild(recH);
+
+            const recList = document.createElement('ul');
+            recList.className = 'search-rec-list';
+            recs.forEach(r => {
+                const li = document.createElement('li');
+                li.textContent = r;
+                recList.appendChild(li);
+            });
+            panel.appendChild(recList);
+        }
+
+        container.appendChild(panel);
+    } catch (e) {
+        clearChildren(container);
+        const p = document.createElement('p');
+        p.style.color = 'var(--text-muted)';
+        p.textContent = 'AI reasoning unavailable';
+        container.appendChild(p);
     }
 }
