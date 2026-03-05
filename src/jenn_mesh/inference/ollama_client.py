@@ -30,6 +30,26 @@ DEFAULT_HOST = "http://localhost:11434"
 DEFAULT_MODEL = "qwen3:4b"
 DEFAULT_CODE_MODEL = "qwen2.5-coder:7b"
 
+# Vision-capable models that accept images alongside text prompts
+VISION_MODELS: frozenset = frozenset(
+    {
+        "bakllava",
+        "llava",
+        "llava-llama3",
+        "llava-phi3",
+        "moondream",
+        "moondream2",
+        "minicpm-v",
+        "qwen2-vl",
+    }
+)
+
+
+def _is_vision_model(model: str) -> bool:
+    """Check if a model supports vision/image input."""
+    base = model.split(":")[0].lower()
+    return base in VISION_MODELS or any(base.startswith(v) for v in VISION_MODELS)
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -83,12 +103,19 @@ class OllamaClient:
         host: Optional[str] = None,
         model: Optional[str] = None,
         code_model: Optional[str] = None,
+        proxy_url: Optional[str] = None,
+        proxy_api_key: Optional[str] = None,
     ):
         self._host = host or os.environ.get("OLLAMA_HOST", DEFAULT_HOST)
         self._model = model or os.environ.get("OLLAMA_MODEL", DEFAULT_MODEL)
         self._code_model = code_model or os.environ.get("OLLAMA_CODE_MODEL", DEFAULT_CODE_MODEL)
+        self._proxy_url = proxy_url or os.environ.get("LITELLM_PROXY_URL")
+        self._proxy_api_key = proxy_api_key or os.environ.get(
+            "LITELLM_API_KEY", "sk-jenn-litellm-local"
+        )
         self._client: Any = None  # Lazy-loaded ollama.AsyncClient
         self._instructor_client: Any = None  # Lazy-loaded instructor client
+        self._proxy_http: Any = None  # Lazy-loaded httpx client for proxy
         self._available: Optional[bool] = None  # Cached availability
         self._code_model_available: Optional[bool] = None
 
@@ -103,6 +130,22 @@ class OllamaClient:
     @property
     def code_model(self) -> str:
         return self._code_model
+
+    @property
+    def proxy_url(self) -> Optional[str]:
+        return self._proxy_url
+
+    def _get_proxy_http(self) -> Any:
+        """Lazy-load httpx.AsyncClient for LiteLLM proxy requests."""
+        if self._proxy_http is None:
+            try:
+                import httpx
+
+                self._proxy_http = httpx.AsyncClient(timeout=120.0)
+            except ImportError:
+                logger.warning("httpx not installed — proxy routing unavailable")
+                return None
+        return self._proxy_http
 
     def _get_client(self) -> Any:
         """Lazy-load the ollama AsyncClient (import-time safety)."""
@@ -176,11 +219,21 @@ class OllamaClient:
         """Clear cached availability so next call re-checks."""
         self._available = None
 
+    @property
+    def capabilities(self) -> Dict[str, Any]:
+        """Report client capabilities (vision depends on configured model)."""
+        return {
+            "vision": _is_vision_model(self._model),
+            "function_calling": True,
+            "json_output": True,
+        }
+
     async def chat(
         self,
         system_prompt: str,
         user_message: str,
         tools: Optional[List[Dict[str, Any]]] = None,
+        images: Optional[List[str]] = None,
     ) -> Optional[str]:
         """Send a chat completion request to Ollama.
 
@@ -188,10 +241,18 @@ class OllamaClient:
             system_prompt: System instruction.
             user_message: User message.
             tools: Optional Ollama function-calling tool schemas.
+            images: Optional list of base64-encoded images for vision models.
 
         Returns the assistant's response text, raw response for tool calls,
         or None if unavailable.
         """
+        # Try LiteLLM proxy first (fleet load balancing) — non-tool requests only
+        if self._proxy_url and not tools:
+            proxy_result = await self._try_proxy_chat(system_prompt, user_message, images)
+            if proxy_result is not None:
+                return proxy_result
+            # Proxy failed — fall through to direct Ollama
+
         if not await self.is_available():
             return None
 
@@ -209,6 +270,8 @@ class OllamaClient:
             }
             if tools:
                 kwargs["tools"] = tools
+            if images:
+                kwargs["images"] = images
 
             response = await client.chat(**kwargs)
 
@@ -226,6 +289,58 @@ class OllamaClient:
             return _strip_think_tags(content)
         except Exception as exc:
             logger.error("Ollama chat failed: %s", type(exc).__name__)
+            return None
+
+    async def _try_proxy_chat(
+        self,
+        system_prompt: str,
+        user_message: str,
+        images: Optional[List[str]] = None,
+    ) -> Optional[str]:
+        """Attempt a chat completion via the LiteLLM proxy (OpenAI format).
+
+        Returns the response text, or None on any failure (so caller can
+        fall through to direct Ollama).
+        """
+        http = self._get_proxy_http()
+        if http is None:
+            return None
+
+        proxy_url = self._proxy_url.rstrip("/")  # type: ignore[union-attr]
+        messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ]
+
+        # Convert images to OpenAI multipart content format
+        if images:
+            content_parts: List[Dict[str, Any]] = [
+                {"type": "text", "text": user_message}
+            ]
+            for img in images:
+                content_parts.append(
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img}"}}
+                )
+            messages[-1]["content"] = content_parts
+
+        payload = {
+            "model": "default",
+            "messages": messages,
+            "temperature": 0.7,
+        }
+
+        try:
+            response = await http.post(
+                f"{proxy_url}/v1/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {self._proxy_api_key}"},
+            )
+            response.raise_for_status()
+            data = response.json()
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            return _strip_think_tags(content)
+        except Exception as exc:
+            logger.warning("LiteLLM proxy chat failed, falling back to direct Ollama: %s", exc)
             return None
 
     async def chat_json(self, system_prompt: str, user_message: str) -> Optional[dict[str, Any]]:
@@ -474,6 +589,8 @@ class OllamaClient:
             "model": self._model,
             "code_model": self._code_model,
             "code_model_available": code_available,
+            "proxy_url": self._proxy_url,
+            "proxy_enabled": self._proxy_url is not None,
         }
 
 

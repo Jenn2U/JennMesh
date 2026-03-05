@@ -19,11 +19,13 @@ import pytest
 
 from jenn_mesh.inference.ollama_client import (
     DEFAULT_CODE_MODEL,
+    VISION_MODELS,
     AnomalyReport,
     LocationReasoning,
     OllamaClient,
     ProvisioningAdvice,
     _extract_json,
+    _is_vision_model,
     _strip_think_tags,
 )
 
@@ -670,3 +672,206 @@ class TestHealthInfoCodeModel:
 
         info = await client.health_info()
         assert info["code_model_available"] is False
+
+
+# ── Vision support tests ─────────────────────────────────────────────
+
+
+class TestVisionSupport:
+    """Tests for vision model detection, capabilities, and image passthrough."""
+
+    def test_is_vision_model_known(self):
+        assert _is_vision_model("bakllava") is True
+        assert _is_vision_model("llava:7b") is True
+        assert _is_vision_model("moondream2") is True
+        assert _is_vision_model("qwen2-vl") is True
+
+    def test_is_vision_model_non_vision(self):
+        assert _is_vision_model("qwen3:4b") is False
+        assert _is_vision_model("llama3.2:3b") is False
+
+    def test_is_vision_model_with_tag(self):
+        assert _is_vision_model("bakllava:latest") is True
+        assert _is_vision_model("llava-llama3:8b") is True
+
+    def test_vision_models_frozenset(self):
+        assert isinstance(VISION_MODELS, frozenset)
+        assert "bakllava" in VISION_MODELS
+
+    def test_capabilities_vision_model(self):
+        client = OllamaClient(model="bakllava")
+        assert client.capabilities["vision"] is True
+        assert client.capabilities["function_calling"] is True
+
+    def test_capabilities_non_vision_model(self):
+        client = OllamaClient()
+        assert client.capabilities["vision"] is False
+
+    @pytest.mark.asyncio
+    async def test_chat_passes_images(self):
+        mock_client = AsyncMock()
+        mock_client.chat = AsyncMock(return_value=_make_chat_response("A cat."))
+        client = OllamaClient(model="bakllava")
+        client._client = mock_client
+        client._available = True
+
+        result = await client.chat("Describe the image", "What is this?", images=["base64data=="])
+        assert result == "A cat."
+        call_kwargs = mock_client.chat.call_args.kwargs
+        assert call_kwargs.get("images") == ["base64data=="]
+
+    @pytest.mark.asyncio
+    async def test_chat_omits_images_when_none(self):
+        mock_client = AsyncMock()
+        mock_client.chat = AsyncMock(return_value=_make_chat_response("Hello"))
+        client = OllamaClient()
+        client._client = mock_client
+        client._available = True
+
+        await client.chat("system", "hi")
+        call_kwargs = mock_client.chat.call_args.kwargs
+        assert "images" not in call_kwargs
+
+
+class TestProxyDualMode:
+    """Tests for LiteLLM proxy dual-mode in OllamaClient."""
+
+    def test_proxy_url_defaults_to_none(self):
+        client = OllamaClient()
+        assert client.proxy_url is None
+
+    def test_proxy_url_from_constructor(self):
+        client = OllamaClient(proxy_url="http://litellm:4000")
+        assert client.proxy_url == "http://litellm:4000"
+
+    def test_proxy_url_from_env(self, monkeypatch):
+        monkeypatch.setenv("LITELLM_PROXY_URL", "http://env-proxy:4000")
+        client = OllamaClient()
+        assert client.proxy_url == "http://env-proxy:4000"
+
+    def test_health_info_includes_proxy(self):
+        """health_info reports proxy status."""
+        client = OllamaClient(proxy_url="http://litellm:4000")
+        # health_info is async but we can check the fields exist
+        assert client._proxy_url == "http://litellm:4000"
+
+    @pytest.mark.asyncio
+    async def test_proxy_success_returns_content(self):
+        """Proxy success path returns response without touching direct Ollama."""
+        from unittest.mock import MagicMock
+
+        mock_http = AsyncMock()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": "proxy answer"}}],
+        }
+        mock_http.post = AsyncMock(return_value=mock_resp)
+
+        client = OllamaClient(proxy_url="http://litellm:4000")
+        client._proxy_http = mock_http
+
+        result = await client.chat("system", "hello")
+        assert result == "proxy answer"
+        mock_http.post.assert_awaited_once()
+        # Verify the URL hit /v1/chat/completions
+        call_url = mock_http.post.call_args[0][0]
+        assert "/v1/chat/completions" in call_url
+
+    @pytest.mark.asyncio
+    async def test_proxy_failure_falls_through_to_ollama(self):
+        """Proxy failure → falls through to direct Ollama."""
+        from unittest.mock import MagicMock
+
+        mock_http = AsyncMock()
+        mock_http.post = AsyncMock(side_effect=ConnectionError("proxy down"))
+
+        mock_ollama = AsyncMock()
+        mock_ollama.chat = AsyncMock(return_value=_make_chat_response("direct answer"))
+
+        client = OllamaClient(proxy_url="http://litellm:4000")
+        client._proxy_http = mock_http
+        client._client = mock_ollama
+        client._available = True
+
+        result = await client.chat("system", "hello")
+        assert result == "direct answer"
+        mock_ollama.chat.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_proxy_skipped_for_tool_calls(self):
+        """Tool calls bypass the proxy (Ollama native only)."""
+        from unittest.mock import MagicMock
+
+        mock_http = AsyncMock()
+        mock_ollama = AsyncMock()
+
+        # Tool call response
+        tool_resp = SimpleNamespace(
+            message=SimpleNamespace(
+                tool_calls=[{"function": {"name": "get_status", "arguments": "{}"}}]
+            )
+        )
+        mock_ollama.chat = AsyncMock(return_value=tool_resp)
+
+        client = OllamaClient(proxy_url="http://litellm:4000")
+        client._proxy_http = mock_http
+        client._client = mock_ollama
+        client._available = True
+
+        tools = [{"type": "function", "function": {"name": "get_status"}}]
+        result = await client.chat("system", "check status", tools=tools)
+
+        # Proxy should NOT have been called
+        mock_http.post.assert_not_awaited()
+        # Direct Ollama should handle it
+        assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_proxy_passes_images_in_openai_format(self):
+        """Images are converted to OpenAI multipart content for proxy."""
+        from unittest.mock import MagicMock
+
+        mock_http = AsyncMock()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": "A cat"}}],
+        }
+        mock_http.post = AsyncMock(return_value=mock_resp)
+
+        client = OllamaClient(proxy_url="http://litellm:4000")
+        client._proxy_http = mock_http
+
+        result = await client.chat("Describe", "What?", images=["base64data=="])
+        assert result == "A cat"
+
+        # Verify images were converted to OpenAI content parts
+        payload = mock_http.post.call_args.kwargs.get(
+            "json"
+        ) or mock_http.post.call_args[1].get("json")
+        user_msg = payload["messages"][-1]
+        assert isinstance(user_msg["content"], list)
+        assert user_msg["content"][0] == {"type": "text", "text": "What?"}
+        assert user_msg["content"][1]["type"] == "image_url"
+        assert "base64data==" in user_msg["content"][1]["image_url"]["url"]
+
+    @pytest.mark.asyncio
+    async def test_health_info_proxy_enabled(self):
+        client = OllamaClient(proxy_url="http://litellm:4000")
+        client._available = False
+        client._code_model_available = False
+        info = await client.health_info()
+        assert info["proxy_enabled"] is True
+        assert info["proxy_url"] == "http://litellm:4000"
+
+    @pytest.mark.asyncio
+    async def test_health_info_proxy_disabled(self):
+        client = OllamaClient()
+        client._available = False
+        client._code_model_available = False
+        info = await client.health_info()
+        assert info["proxy_enabled"] is False
+        assert info["proxy_url"] is None
