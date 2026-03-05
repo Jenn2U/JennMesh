@@ -567,9 +567,7 @@ class TestGenerateConfigYaml:
     async def test_returns_yaml_when_available(self):
         client = OllamaClient()
         mock_client = AsyncMock()
-        mock_client.list = AsyncMock(
-            return_value=_make_list_response(["qwen2.5-coder:7b"])
-        )
+        mock_client.list = AsyncMock(return_value=_make_list_response(["qwen2.5-coder:7b"]))
         mock_client.chat = AsyncMock(
             return_value=_make_chat_response(
                 "lora:\n  region: US\n  bandwidth: 250\nchannels:\n  - name: default"
@@ -578,10 +576,12 @@ class TestGenerateConfigYaml:
         client._client = mock_client
         client._code_model_available = None  # Reset cache
 
-        result = await client.generate_config_yaml({
-            "node_role": "router",
-            "region": "US",
-        })
+        result = await client.generate_config_yaml(
+            {
+                "node_role": "router",
+                "region": "US",
+            }
+        )
         assert result is not None
         assert "lora" in result
 
@@ -600,9 +600,7 @@ class TestAnalyzeRecoveryScript:
     async def test_returns_dict_when_available(self):
         client = OllamaClient()
         mock_client = AsyncMock()
-        mock_client.list = AsyncMock(
-            return_value=_make_list_response(["qwen2.5-coder:7b"])
-        )
+        mock_client.list = AsyncMock(return_value=_make_list_response(["qwen2.5-coder:7b"]))
         mock_client.chat = AsyncMock(
             return_value=_make_chat_response(
                 '{"safe": true, "risks": [], "suggestions": ["add set -e"]}'
@@ -627,12 +625,8 @@ class TestAnalyzeRecoveryScript:
     async def test_returns_none_on_invalid_json(self):
         client = OllamaClient()
         mock_client = AsyncMock()
-        mock_client.list = AsyncMock(
-            return_value=_make_list_response(["qwen2.5-coder:7b"])
-        )
-        mock_client.chat = AsyncMock(
-            return_value=_make_chat_response("this is not valid json")
-        )
+        mock_client.list = AsyncMock(return_value=_make_list_response(["qwen2.5-coder:7b"]))
+        mock_client.chat = AsyncMock(return_value=_make_chat_response("this is not valid json"))
         client._client = mock_client
         client._code_model_available = None
 
@@ -663,9 +657,7 @@ class TestHealthInfoCodeModel:
     async def test_health_info_code_model_unavailable(self):
         client = OllamaClient()
         mock_client = AsyncMock()
-        mock_client.list = AsyncMock(
-            return_value=_make_list_response(["qwen3:4b"])
-        )
+        mock_client.list = AsyncMock(return_value=_make_list_response(["qwen3:4b"]))
         client._client = mock_client
         client._available = None
         client._code_model_available = None
@@ -849,9 +841,9 @@ class TestProxyDualMode:
         assert result == "A cat"
 
         # Verify images were converted to OpenAI content parts
-        payload = mock_http.post.call_args.kwargs.get(
+        payload = mock_http.post.call_args.kwargs.get("json") or mock_http.post.call_args[1].get(
             "json"
-        ) or mock_http.post.call_args[1].get("json")
+        )
         user_msg = payload["messages"][-1]
         assert isinstance(user_msg["content"], list)
         assert user_msg["content"][0] == {"type": "text", "text": "What?"}
