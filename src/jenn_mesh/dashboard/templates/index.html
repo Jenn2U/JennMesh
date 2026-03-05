@@ -23,6 +23,7 @@
             <a href="#locator" class="nav-link" data-tab="locator">Locator</a>
             <a href="#alerts" class="nav-link" data-tab="alerts">Alerts</a>
             <a href="#watchdog" class="nav-link" data-tab="watchdog">Watchdog</a>
+            <a href="#analytics" class="nav-link" data-tab="analytics">Analytics</a>
             <a href="#sync" class="nav-link" data-tab="sync">Sync</a>
             <a href="#failover" class="nav-link" data-tab="failover">Failover</a>
             <a href="/fleet-query" class="nav-link">Ask AI</a>
@@ -230,6 +231,13 @@
             </div>
             <div id="alert-summary-panel"></div>
 
+            <!-- Anomaly Detection (MESH-017) -->
+            <div class="section-header" style="margin-top:1.5rem">
+                <h3>Anomaly Detection</h3>
+                <div id="anomaly-status" class="queue-summary"></div>
+            </div>
+            <div id="anomaly-panel"></div>
+
             <h3 style="margin-top:1.5rem">Alert Feed</h3>
             <div id="alerts-list"></div>
         </section>
@@ -243,6 +251,18 @@
 
             <h3>Health Checks</h3>
             <div id="watchdog-grid" class="watchdog-grid"></div>
+
+            <!-- Manual Trigger (MESH-030 Part 2) -->
+            <div class="section-header" style="margin-top:2rem">
+                <h3>Manual Trigger</h3>
+            </div>
+            <div class="watchdog-trigger">
+                <select id="watchdog-check-select">
+                    <option value="">Select a check...</option>
+                </select>
+                <button id="watchdog-trigger-btn" class="btn-primary">Run Check</button>
+                <div id="watchdog-trigger-result" class="trigger-result"></div>
+            </div>
 
             <div class="section-header" style="margin-top:2rem">
                 <h3>Audit Trail</h3>
@@ -259,6 +279,39 @@
                 </thead>
                 <tbody id="watchdog-body">
                     <tr><td colspan="5" class="loading">Loading watchdog history...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Analytics Tab (MESH-035 + MESH-039) -->
+        <section class="tab-content" id="tab-analytics">
+            <div class="section-header">
+                <h2>Fleet Analytics</h2>
+                <div id="analytics-summary" class="queue-summary"></div>
+            </div>
+
+            <!-- Environmental Telemetry (MESH-039) -->
+            <div class="section-header" style="margin-top:1.5rem">
+                <h3>Environmental Telemetry</h3>
+                <button id="env-refresh-btn" class="btn-outline btn-sm">Refresh</button>
+            </div>
+            <div id="env-fleet-summary" class="env-summary-grid"></div>
+
+            <div class="section-header" style="margin-top:1.5rem">
+                <h3>Env Threshold Alerts</h3>
+            </div>
+            <table class="data-table" id="env-alerts-table">
+                <thead>
+                    <tr>
+                        <th>Node</th>
+                        <th>Alert Type</th>
+                        <th>Severity</th>
+                        <th>Message</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody id="env-alerts-body">
+                    <tr><td colspan="5" class="loading">Loading env alerts...</td></tr>
                 </tbody>
             </table>
         </section>

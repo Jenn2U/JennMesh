@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupSyncTrigger();
     setupFailoverAssess();
     setupAdvisor();
+    setupWatchdogTrigger();
     setInterval(() => {
         loadHealthData();
         loadFleetData();
@@ -28,11 +29,12 @@ function initNavigation() {
             const target = document.getElementById('tab-' + tab);
             if (target) target.classList.add('active');
             if (tab === 'provision') loadProvisionLog();
-            if (tab === 'alerts') { loadAlerts(); loadAlertSummary(); }
+            if (tab === 'alerts') { loadAlerts(); loadAlertSummary(); loadAnomalyData(); }
             if (tab === 'config') loadConfigData();
             if (tab === 'watchdog') loadWatchdogData();
             if (tab === 'sync') loadSyncData();
             if (tab === 'failover') loadFailoverData();
+            if (tab === 'analytics') loadAnalyticsData();
         });
     });
 }
@@ -1604,6 +1606,7 @@ async function confirmRollback(snapshotId, nodeId, btn) {
 
 async function loadWatchdogData() {
     await loadWatchdogStatus();
+    await populateWatchdogChecks();
     await loadWatchdogHistory();
 }
 
@@ -1701,6 +1704,296 @@ async function loadWatchdogHistory() {
         td.colSpan = 5;
         td.className = 'loading';
         td.textContent = 'Watchdog history unavailable';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+    }
+}
+
+// === MESH-017: Anomaly Detection UI ===
+
+async function loadAnomalyData() {
+    const panel = document.getElementById('anomaly-panel');
+    const statusEl = document.getElementById('anomaly-status');
+    if (!panel) return;
+    clearChildren(panel);
+
+    try {
+        // Fetch status and fleet analysis in parallel
+        const [statusResp, fleetResp] = await Promise.all([
+            fetch('/api/v1/anomaly/status'),
+            fetch('/api/v1/anomaly/fleet'),
+        ]);
+        const status = await statusResp.json();
+        const fleet = await fleetResp.json();
+
+        if (statusEl) {
+            statusEl.textContent = (status.ollama_available ? 'AI: active' : 'baseline only') +
+                ' \u00B7 threshold: ' + (status.deviation_threshold || 'N/A');
+        }
+
+        const reports = fleet.reports || [];
+        if (reports.length === 0) {
+            const p = document.createElement('p');
+            p.className = 'loading';
+            p.textContent = 'No anomalies detected';
+            panel.appendChild(p);
+            return;
+        }
+
+        reports.forEach(report => {
+            const card = document.createElement('div');
+            card.className = 'anomaly-card';
+
+            // Header: node + source
+            const header = document.createElement('div');
+            header.className = 'anomaly-header';
+            const nodeBadge = document.createElement('span');
+            nodeBadge.className = 'node-badge';
+            nodeBadge.textContent = report.node_id || '\u2014';
+            header.appendChild(nodeBadge);
+            const srcBadge = document.createElement('span');
+            srcBadge.className = 'source-badge ' + (report.source || 'baseline');
+            srcBadge.textContent = report.source || 'baseline';
+            header.appendChild(srcBadge);
+            card.appendChild(header);
+
+            // Deviating metrics chips
+            const metrics = report.deviating_metrics || [];
+            if (metrics.length > 0) {
+                const list = document.createElement('div');
+                list.className = 'metrics-list';
+                metrics.forEach(m => {
+                    const chip = document.createElement('span');
+                    chip.className = 'metric-chip';
+                    chip.textContent = m.metric + ': ' + (m.current !== undefined ? m.current : '?') +
+                        ' (avg ' + (m.baseline_mean !== undefined ? Number(m.baseline_mean).toFixed(1) : '?') + ')';
+                    list.appendChild(chip);
+                });
+                card.appendChild(list);
+            }
+
+            // AI analysis if present
+            const ai = report.ai_analysis;
+            if (ai && ai.summary) {
+                const aiDiv = document.createElement('div');
+                aiDiv.className = 'ai-analysis';
+                const sevSpan = document.createElement('strong');
+                sevSpan.textContent = (ai.severity || 'unknown').toUpperCase();
+                aiDiv.appendChild(sevSpan);
+                aiDiv.appendChild(document.createTextNode(' \u2014 ' + ai.summary));
+                if (ai.recommended_action) {
+                    const rec = document.createElement('p');
+                    rec.style.cssText = 'margin-top:0.25rem;font-size:0.8125rem;color:var(--text-muted)';
+                    rec.textContent = '\u2192 ' + ai.recommended_action;
+                    aiDiv.appendChild(rec);
+                }
+                card.appendChild(aiDiv);
+            }
+
+            panel.appendChild(card);
+        });
+    } catch (e) {
+        console.error('Failed to load anomaly data:', e);
+        const p = document.createElement('p');
+        p.className = 'loading';
+        p.textContent = 'Anomaly detection unavailable';
+        panel.appendChild(p);
+    }
+}
+
+// === MESH-030 Part 2: Watchdog Manual Trigger ===
+
+function setupWatchdogTrigger() {
+    const btn = document.getElementById('watchdog-trigger-btn');
+    if (!btn) return;
+
+    btn.addEventListener('click', async () => {
+        const select = document.getElementById('watchdog-check-select');
+        const resultEl = document.getElementById('watchdog-trigger-result');
+        const checkName = select ? select.value : '';
+        if (!checkName) {
+            if (resultEl) resultEl.textContent = 'Select a check first';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Running...';
+        if (resultEl) resultEl.textContent = '';
+
+        try {
+            const resp = await fetch('/api/v1/watchdog/trigger/' + encodeURIComponent(checkName), {
+                method: 'POST',
+            });
+            const data = await resp.json();
+
+            if (resultEl) {
+                clearChildren(resultEl);
+                const pre = document.createElement('pre');
+                pre.textContent = JSON.stringify(data.result || data, null, 2);
+                resultEl.appendChild(pre);
+            }
+
+            // Refresh history after trigger
+            await loadWatchdogHistory();
+        } catch (e) {
+            if (resultEl) resultEl.textContent = 'Trigger failed: ' + e.message;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Run Check';
+        }
+    });
+}
+
+async function populateWatchdogChecks() {
+    const select = document.getElementById('watchdog-check-select');
+    if (!select || select.options.length > 1) return;
+
+    try {
+        const resp = await fetch('/api/v1/watchdog/status');
+        const data = await resp.json();
+        const checks = data.checks || {};
+        Object.keys(checks).forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name.replace(/_/g, ' ');
+            select.appendChild(opt);
+        });
+    } catch (e) {
+        console.error('Failed to load watchdog checks:', e);
+    }
+}
+
+// === MESH-039: Environmental Telemetry UI (Part 1) ===
+
+async function loadAnalyticsData() {
+    await loadEnvFleetSummary();
+    await loadEnvAlerts();
+
+    // Wire refresh button (idempotent)
+    const refreshBtn = document.getElementById('env-refresh-btn');
+    if (refreshBtn && !refreshBtn._wired) {
+        refreshBtn._wired = true;
+        refreshBtn.addEventListener('click', () => loadAnalyticsData());
+    }
+}
+
+async function loadEnvFleetSummary() {
+    const grid = document.getElementById('env-fleet-summary');
+    const summaryEl = document.getElementById('analytics-summary');
+    if (!grid) return;
+    clearChildren(grid);
+
+    try {
+        const resp = await fetch('/api/v1/environment/fleet/summary');
+        const data = await resp.json();
+
+        if (summaryEl) {
+            summaryEl.textContent = 'nodes: ' + (data.node_count || 0) +
+                ' \u00B7 readings: ' + (data.readings ? data.readings.length : 0);
+        }
+
+        // Fleet-wide stat cards
+        const stats = [
+            { label: 'Avg Temperature', value: data.avg_temperature, unit: '\u00B0C' },
+            { label: 'Avg Humidity', value: data.avg_humidity, unit: '%' },
+            { label: 'Avg Pressure', value: data.avg_pressure, unit: 'hPa' },
+            { label: 'Nodes Reporting', value: data.node_count, unit: '' },
+        ];
+
+        stats.forEach(s => {
+            const card = document.createElement('div');
+            card.className = 'env-stat-card';
+
+            const val = document.createElement('div');
+            val.className = 'env-value';
+            val.textContent = s.value !== null && s.value !== undefined
+                ? Number(s.value).toFixed(1) + s.unit
+                : '\u2014';
+            card.appendChild(val);
+
+            const label = document.createElement('div');
+            label.className = 'env-label';
+            label.textContent = s.label;
+            card.appendChild(label);
+
+            grid.appendChild(card);
+        });
+
+        // Per-node latest readings
+        const readings = data.readings || [];
+        if (readings.length > 0) {
+            readings.forEach(r => {
+                const nodeCard = document.createElement('div');
+                nodeCard.className = 'env-node-reading';
+
+                const nodeId = document.createElement('div');
+                nodeId.className = 'env-node-id';
+                nodeId.textContent = r.node_id || '\u2014';
+                nodeCard.appendChild(nodeId);
+
+                const readingsDiv = document.createElement('div');
+                readingsDiv.className = 'env-readings';
+                const parts = [];
+                if (r.temperature !== null && r.temperature !== undefined) parts.push(Number(r.temperature).toFixed(1) + '\u00B0C');
+                if (r.humidity !== null && r.humidity !== undefined) parts.push(Number(r.humidity).toFixed(0) + '% RH');
+                if (r.pressure !== null && r.pressure !== undefined) parts.push(Number(r.pressure).toFixed(0) + ' hPa');
+                if (r.air_quality !== null && r.air_quality !== undefined) parts.push('AQI ' + r.air_quality);
+                readingsDiv.textContent = parts.join(' \u00B7 ') || 'No data';
+                nodeCard.appendChild(readingsDiv);
+
+                grid.appendChild(nodeCard);
+            });
+        }
+    } catch (e) {
+        console.error('Failed to load env fleet summary:', e);
+        const p = document.createElement('p');
+        p.className = 'loading';
+        p.textContent = 'Environmental data unavailable';
+        grid.appendChild(p);
+    }
+}
+
+async function loadEnvAlerts() {
+    const tbody = document.getElementById('env-alerts-body');
+    if (!tbody) return;
+    clearChildren(tbody);
+
+    try {
+        const resp = await fetch('/api/v1/environment/alerts?limit=50');
+        const data = await resp.json();
+
+        const alerts = data.alerts || [];
+        if (alerts.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 5;
+            td.className = 'loading';
+            td.textContent = 'No environmental alerts';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+            return;
+        }
+
+        alerts.forEach(a => {
+            const tr = document.createElement('tr');
+            tr.appendChild(createTextCell(a.node_id || '\u2014'));
+            tr.appendChild(createTextCell(a.metric || a.alert_type || '\u2014'));
+
+            const sevTd = document.createElement('td');
+            const sev = a.severity || 'warning';
+            sevTd.appendChild(createBadge(sev, sev === 'critical' ? 'badge-offline' : 'badge-warning'));
+            tr.appendChild(sevTd);
+
+            tr.appendChild(createTextCell(a.message || '\u2014'));
+            tr.appendChild(createTextCell(a.timestamp ? new Date(a.timestamp).toLocaleString() : '\u2014'));
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 5;
+        td.className = 'loading';
+        td.textContent = 'Env alerts unavailable';
         tr.appendChild(td);
         tbody.appendChild(tr);
     }
