@@ -92,6 +92,12 @@ class MeshWatchdog:
         self._total_cycles = 0
         self._started_at: Optional[float] = None
 
+        # Auto-resolve hysteresis: track how many consecutive cycles a
+        # condition has been clear per (alert_type, node_id) before
+        # resolving.  Default: resolve after 2 consecutive clear cycles.
+        self.resolve_threshold = int(os.environ.get("JENN_WATCHDOG_RESOLVE_THRESHOLD", "2"))
+        self._clear_streak: dict[tuple[str, str], int] = {}
+
         # Map check names → handler methods (bound lazily on first cycle)
         self._check_handlers: dict[str, Callable[[], dict]] = {
             "offline_nodes": self._check_offline_nodes,
@@ -166,10 +172,12 @@ class MeshWatchdog:
     ) -> int:
         """Auto-resolve active alerts when the triggering condition clears.
 
-        Uses an aggressive strategy: resolve as soon as condition clears.
-        This reduces alert noise for transient issues (battery charges back,
-        node reboots, drift is fixed).  Persistent problems will simply
-        re-fire on the next watchdog cycle.
+        Uses a hysteresis strategy: requires ``resolve_threshold`` consecutive
+        clear checks (default 2, configurable via JENN_WATCHDOG_RESOLVE_THRESHOLD)
+        before resolving an alert.  This prevents alert flapping on bouncing
+        conditions (e.g. battery charge/discharge cycles, intermittent radio
+        connectivity).  If the condition reappears before the threshold is met,
+        the clear streak resets to zero.
 
         Args:
             alert_type:          AlertType value (e.g. "low_battery").
@@ -178,9 +186,6 @@ class MeshWatchdog:
 
         Returns:
             Number of alerts resolved.
-
-        TODO: This is a user-contribution point.  See the plan for trade-off
-        discussion (aggressive vs conservative vs hysteresis).
         """
         active = self.db.get_active_alerts()
         resolved_count = 0
@@ -188,16 +193,33 @@ class MeshWatchdog:
             if alert["alert_type"] != alert_type:
                 continue
             node_id = alert["node_id"]
+            key = (alert_type, node_id)
             try:
                 if condition_cleared_fn(node_id):
-                    self.db.resolve_alert(alert["id"])
-                    resolved_count += 1
-                    logger.info(
-                        "Auto-resolved %s alert #%d for %s",
-                        alert_type,
-                        alert["id"],
-                        node_id,
-                    )
+                    streak = self._clear_streak.get(key, 0) + 1
+                    self._clear_streak[key] = streak
+                    if streak >= self.resolve_threshold:
+                        self.db.resolve_alert(alert["id"])
+                        resolved_count += 1
+                        self._clear_streak.pop(key, None)
+                        logger.info(
+                            "Auto-resolved %s alert #%d for %s (after %d clear cycles)",
+                            alert_type,
+                            alert["id"],
+                            node_id,
+                            streak,
+                        )
+                    else:
+                        logger.debug(
+                            "%s alert for %s: clear streak %d/%d",
+                            alert_type,
+                            node_id,
+                            streak,
+                            self.resolve_threshold,
+                        )
+                else:
+                    # Condition still active — reset clear streak
+                    self._clear_streak.pop(key, None)
             except Exception:
                 logger.debug(
                     "Error checking clear condition for alert #%d", alert["id"], exc_info=True

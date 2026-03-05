@@ -50,10 +50,15 @@ class ConfigRollbackManager:
         *,
         admin_port: str = "auto",
         monitoring_minutes: Optional[int] = None,
+        rollback_threshold: int = 2,
     ) -> None:
         self.db = db
         self._admin = RemoteAdmin(port=admin_port)
         self.monitoring_minutes = monitoring_minutes or DEFAULT_MONITORING_MINUTES
+        self.rollback_threshold = rollback_threshold
+        # Track consecutive offline checks per snapshot before triggering rollback.
+        # Prevents rollback on transient glitches (e.g. radio reboot cycles).
+        self._consecutive_failures: dict[int, int] = {}
 
     # ── Pre-push snapshot ─────────────────────────────────────────────
 
@@ -307,11 +312,13 @@ class ConfigRollbackManager:
             - If the monitoring window hasn't expired yet, always "wait".
             - Once expired: offline → rollback, online → confirm.
 
-        TODO: This is a user-contribution point.  Consider:
-            - Consecutive failure counts (require 2+ offline checks before rollback)
-            - Hysteresis (rollback only if offline for > X minutes continuously)
-            - Different strategies per push_source (bulk_push vs drift_remediation)
+        Consecutive failure tracking:
+            Requires ``rollback_threshold`` (default 2) consecutive offline
+            checks after the monitoring window before triggering rollback.
+            This prevents rollback on transient radio reboots (30-60s).
         """
+        snap_id = snapshot.get("id") or snapshot.get("snapshot_id", 0)
+
         # If monitoring window hasn't expired yet, keep waiting
         if snapshot.get("monitoring_until"):
             until = datetime.fromisoformat(snapshot["monitoring_until"])
@@ -323,15 +330,28 @@ class ConfigRollbackManager:
         # Monitoring window expired — evaluate node health
         if device is None:
             # Device completely unknown — likely removed, rollback won't help
+            self._consecutive_failures.pop(snap_id, None)
             return "confirm"
 
         mesh_status = device.get("mesh_status", "unknown")
         if mesh_status in ("reachable", "online"):
+            self._consecutive_failures.pop(snap_id, None)
             return "confirm"
 
-        # Node is offline/unreachable after monitoring window — rollback
+        # Node is offline/unreachable — apply consecutive failure hysteresis
         if snapshot.get("yaml_before"):
-            return "rollback"
+            count = self._consecutive_failures.get(snap_id, 0) + 1
+            self._consecutive_failures[snap_id] = count
+            if count >= self.rollback_threshold:
+                self._consecutive_failures.pop(snap_id, None)
+                return "rollback"
+            logger.info(
+                "Snapshot #%d: offline check %d/%d (waiting for threshold)",
+                snap_id,
+                count,
+                self.rollback_threshold,
+            )
+            return "wait"
 
         # No yaml_before → can't rollback, just confirm to stop monitoring
         return "confirm"

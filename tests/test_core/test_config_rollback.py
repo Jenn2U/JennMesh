@@ -357,6 +357,9 @@ class TestShouldRollback:
         past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
         snap = self._make_snapshot(monitoring_until=past)
         device = {"mesh_status": "unreachable"}
+        # First call returns "wait" (hysteresis: needs 2 consecutive failures)
+        assert manager._should_rollback(snap, device) == "wait"
+        # Second call reaches threshold → "rollback"
         assert manager._should_rollback(snap, device) == "rollback"
 
     def test_confirm_when_device_gone(self, manager: ConfigRollbackManager) -> None:
@@ -408,6 +411,11 @@ class TestCheckPostPushFailures:
             success=True, node_id="!a", command="configure", output="ok"
         )
         with patch.object(manager._admin, "apply_remote_config", return_value=mock_result):
+            # First call: hysteresis — offline check 1/2, returns "wait"
+            result = manager.check_post_push_failures()
+            assert result["rolled_back"] == 0
+
+            # Second call: reaches threshold → triggers rollback
             result = manager.check_post_push_failures()
 
         assert result["rolled_back"] == 1

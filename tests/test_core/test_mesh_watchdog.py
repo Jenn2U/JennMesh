@@ -281,11 +281,16 @@ class TestGetStatus:
 
 class TestAutoResolveAlerts:
     def test_resolve_when_condition_clears(self, db: MeshDatabase) -> None:
-        """Alert should be resolved when condition_cleared_fn returns True."""
+        """Alert should be resolved after hysteresis threshold (2 clear cycles)."""
         _seed_devices(db)
         alert_id = db.create_alert("!a", "low_battery", "warning", "Low battery")
         wd = MeshWatchdog(db=db)
 
+        # First call: clear streak 1/2 — not yet resolved
+        resolved = wd._auto_resolve_alerts("low_battery", lambda nid: True)
+        assert resolved == 0
+
+        # Second call: clear streak 2/2 → resolves
         resolved = wd._auto_resolve_alerts("low_battery", lambda nid: True)
         assert resolved == 1
 
@@ -307,6 +312,8 @@ class TestAutoResolveAlerts:
         db.create_alert("!a", "node_offline", "critical", "Node offline")
         wd = MeshWatchdog(db=db)
 
+        # Two calls to reach hysteresis threshold for low_battery
+        wd._auto_resolve_alerts("low_battery", lambda nid: True)
         resolved = wd._auto_resolve_alerts("low_battery", lambda nid: True)
         assert resolved == 1
         # node_offline should still be active

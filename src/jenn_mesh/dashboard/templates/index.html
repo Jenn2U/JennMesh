@@ -22,6 +22,7 @@
             <a href="#provision" class="nav-link" data-tab="provision">Provision</a>
             <a href="#locator" class="nav-link" data-tab="locator">Locator</a>
             <a href="#alerts" class="nav-link" data-tab="alerts">Alerts</a>
+            <a href="#watchdog" class="nav-link" data-tab="watchdog">Watchdog</a>
             <a href="#sync" class="nav-link" data-tab="sync">Sync</a>
             <a href="#failover" class="nav-link" data-tab="failover">Failover</a>
             <a href="/fleet-query" class="nav-link">Ask AI</a>
@@ -116,6 +117,27 @@
                     <tr><td colspan="8" class="loading">Loading queue...</td></tr>
                 </tbody>
             </table>
+
+            <!-- Config Rollback (MESH-040) -->
+            <div class="section-header" style="margin-top:2rem">
+                <h3>Config Snapshots &amp; Rollback</h3>
+                <div id="rollback-status" class="queue-summary"></div>
+            </div>
+            <table class="data-table" id="rollback-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Node</th>
+                        <th>Timestamp</th>
+                        <th>Trigger</th>
+                        <th>Hash Before</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="rollback-body">
+                    <tr><td colspan="6" class="loading">Loading snapshots...</td></tr>
+                </tbody>
+            </table>
         </section>
 
         <!-- Remediation Preview Modal -->
@@ -200,7 +222,45 @@
         <!-- Alerts Tab -->
         <section class="tab-content" id="tab-alerts">
             <h2>Active Alerts</h2>
+
+            <!-- Alert Summarization (MESH-018) -->
+            <div class="section-header">
+                <h3>AI Summary</h3>
+                <div id="alert-summary-status" class="queue-summary"></div>
+            </div>
+            <div id="alert-summary-panel"></div>
+
+            <h3 style="margin-top:1.5rem">Alert Feed</h3>
             <div id="alerts-list"></div>
+        </section>
+
+        <!-- Watchdog Tab (MESH-030) -->
+        <section class="tab-content" id="tab-watchdog">
+            <div class="section-header">
+                <h2>Mesh Watchdog</h2>
+                <div id="watchdog-summary" class="queue-summary"></div>
+            </div>
+
+            <h3>Health Checks</h3>
+            <div id="watchdog-grid" class="watchdog-grid"></div>
+
+            <div class="section-header" style="margin-top:2rem">
+                <h3>Audit Trail</h3>
+            </div>
+            <table class="data-table" id="watchdog-table">
+                <thead>
+                    <tr>
+                        <th>Run ID</th>
+                        <th>Check</th>
+                        <th>Status</th>
+                        <th>Summary</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody id="watchdog-body">
+                    <tr><td colspan="5" class="loading">Loading watchdog history...</td></tr>
+                </tbody>
+            </table>
         </section>
 
         <!-- Sync Relay Tab -->

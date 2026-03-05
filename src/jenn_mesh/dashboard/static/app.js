@@ -28,8 +28,9 @@ function initNavigation() {
             const target = document.getElementById('tab-' + tab);
             if (target) target.classList.add('active');
             if (tab === 'provision') loadProvisionLog();
-            if (tab === 'alerts') loadAlerts();
+            if (tab === 'alerts') { loadAlerts(); loadAlertSummary(); }
             if (tab === 'config') loadConfigData();
+            if (tab === 'watchdog') loadWatchdogData();
             if (tab === 'sync') loadSyncData();
             if (tab === 'failover') loadFailoverData();
         });
@@ -226,6 +227,9 @@ async function loadConfigData() {
 
         // Config queue
         await loadConfigQueue();
+
+        // Config rollback snapshots (MESH-040)
+        await loadRollbackData();
     } catch (e) {
         console.error('Failed to load config data:', e);
     }
@@ -1438,6 +1442,263 @@ async function requestRecommendation() {
         container.appendChild(p);
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Get Recommendations'; }
+    }
+}
+
+// === MESH-018: Alert Summarization ===
+
+async function loadAlertSummary() {
+    const container = document.getElementById('alert-summary-panel');
+    const statusEl = document.getElementById('alert-summary-status');
+    if (!container) return;
+    clearChildren(container);
+
+    try {
+        const resp = await fetch('/api/v1/alerts/summary');
+        const data = await resp.json();
+
+        // Status badge
+        if (statusEl) {
+            statusEl.textContent = 'source: ' + (data.source || 'unknown');
+        }
+
+        const card = document.createElement('div');
+        card.className = 'alert-summary-card';
+
+        // Summary text
+        const summaryP = document.createElement('p');
+        summaryP.className = 'summary-text';
+        summaryP.textContent = data.summary || 'No summary available.';
+        card.appendChild(summaryP);
+
+        // Count
+        const countP = document.createElement('p');
+        countP.style.cssText = 'font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.5rem';
+        countP.textContent = (data.alert_count || 0) + ' active alert(s)';
+        card.appendChild(countP);
+
+        // Breakdown chips
+        const breakdown = data.breakdown || {};
+        const keys = Object.keys(breakdown);
+        if (keys.length > 0) {
+            const chips = document.createElement('div');
+            chips.className = 'breakdown-chips';
+            keys.forEach(k => {
+                const chip = document.createElement('span');
+                chip.className = 'breakdown-chip';
+                chip.textContent = k + ': ' + breakdown[k];
+                chips.appendChild(chip);
+            });
+            card.appendChild(chips);
+        }
+
+        container.appendChild(card);
+    } catch (e) {
+        const p = document.createElement('p');
+        p.className = 'loading';
+        p.textContent = 'Alert summary unavailable';
+        container.appendChild(p);
+    }
+}
+
+// === MESH-040: Config Rollback ===
+
+async function loadRollbackData() {
+    const tbody = document.getElementById('rollback-body');
+    const statusEl = document.getElementById('rollback-status');
+    if (!tbody) return;
+    clearChildren(tbody);
+
+    try {
+        // Load status
+        const statusResp = await fetch('/api/v1/config-rollback/status');
+        if (statusResp.ok) {
+            const statusData = await statusResp.json();
+            if (statusEl) {
+                statusEl.textContent = 'monitoring: ' + (statusData.monitoring_count || 0) + ' nodes';
+            }
+        }
+
+        // Load snapshots
+        const resp = await fetch('/api/v1/config-rollback/snapshots?limit=20');
+        const data = await resp.json();
+
+        if (!data.snapshots || data.snapshots.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 6;
+            td.className = 'loading';
+            td.textContent = 'No config snapshots recorded';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+            return;
+        }
+
+        data.snapshots.forEach(s => {
+            const tr = document.createElement('tr');
+            tr.appendChild(createTextCell(s.id || s.snapshot_id || '\u2014'));
+            tr.appendChild(createTextCell(s.node_id || '\u2014'));
+            tr.appendChild(createTextCell(s.timestamp ? new Date(s.timestamp).toLocaleString() : '\u2014'));
+            tr.appendChild(createTextCell(s.trigger || s.change_type || '\u2014'));
+
+            const hashBefore = s.hash_before || s.yaml_hash_before || '';
+            tr.appendChild(createTextCell(hashBefore ? hashBefore.substring(0, 16) + '...' : '\u2014'));
+
+            // Rollback button
+            const actionTd = document.createElement('td');
+            const rollBtn = document.createElement('button');
+            rollBtn.className = 'btn-outline btn-sm';
+            rollBtn.textContent = 'Rollback';
+            const snapId = s.id || s.snapshot_id;
+            rollBtn.addEventListener('click', () => confirmRollback(snapId, s.node_id, rollBtn));
+            actionTd.appendChild(rollBtn);
+            tr.appendChild(actionTd);
+
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 6;
+        td.className = 'loading';
+        td.textContent = 'Config rollback system unavailable';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+    }
+}
+
+async function confirmRollback(snapshotId, nodeId, btn) {
+    if (!confirm('Roll back ' + (nodeId || 'node') + ' to snapshot #' + snapshotId + '? This pushes config to a live mesh node.')) {
+        return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Rolling back...';
+
+    try {
+        const resp = await fetch('/api/v1/config-rollback/snapshot/' + snapshotId + '/rollback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirmed: true }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            btn.textContent = 'Done';
+            btn.className = 'btn-primary btn-sm';
+        } else {
+            btn.textContent = 'Failed';
+            btn.className = 'btn-danger btn-sm';
+            console.error('Rollback failed:', data.detail || data.error);
+        }
+    } catch (e) {
+        btn.textContent = 'Error';
+        btn.className = 'btn-danger btn-sm';
+        console.error('Rollback error:', e);
+    }
+}
+
+// === MESH-030: Watchdog (Part 1 — Status Grid + History) ===
+
+async function loadWatchdogData() {
+    await loadWatchdogStatus();
+    await loadWatchdogHistory();
+}
+
+async function loadWatchdogStatus() {
+    const grid = document.getElementById('watchdog-grid');
+    const summaryEl = document.getElementById('watchdog-summary');
+    if (!grid) return;
+    clearChildren(grid);
+
+    try {
+        const resp = await fetch('/api/v1/watchdog/status');
+        const data = await resp.json();
+
+        if (summaryEl) {
+            summaryEl.textContent = 'cycles: ' + (data.total_cycles || 0) +
+                ' \u00B7 loop: ' + (data.loop_sleep_seconds || 60) + 's';
+        }
+
+        const checks = data.checks || {};
+        Object.keys(checks).forEach(name => {
+            const info = checks[name];
+            const card = document.createElement('div');
+            card.className = 'watchdog-check-card';
+
+            const nameDiv = document.createElement('div');
+            nameDiv.className = 'check-name';
+            const dot = document.createElement('span');
+            dot.className = 'check-dot ' + (info.enabled ? 'enabled' : 'disabled');
+            nameDiv.appendChild(dot);
+            nameDiv.appendChild(document.createTextNode(name.replace(/_/g, ' ')));
+            card.appendChild(nameDiv);
+
+            const meta = document.createElement('div');
+            meta.className = 'check-meta';
+            const interval = info.interval_seconds || 0;
+            const since = info.seconds_since_last_run;
+            meta.textContent = 'every ' + interval + 's' +
+                (since !== null && since !== undefined ? ' \u00B7 last: ' + Math.round(since) + 's ago' : ' \u00B7 not yet run');
+            card.appendChild(meta);
+
+            grid.appendChild(card);
+        });
+    } catch (e) {
+        const p = document.createElement('p');
+        p.className = 'loading';
+        p.textContent = 'Watchdog unavailable';
+        grid.appendChild(p);
+    }
+}
+
+async function loadWatchdogHistory() {
+    const tbody = document.getElementById('watchdog-body');
+    if (!tbody) return;
+    clearChildren(tbody);
+
+    try {
+        const resp = await fetch('/api/v1/watchdog/history?limit=30');
+        const data = await resp.json();
+
+        if (!data.runs || data.runs.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 5;
+            td.className = 'loading';
+            td.textContent = 'No watchdog runs recorded';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+            return;
+        }
+
+        data.runs.forEach(run => {
+            const tr = document.createElement('tr');
+            tr.appendChild(createTextCell(run.id || run.run_id || '\u2014'));
+            tr.appendChild(createTextCell(run.check_name || '\u2014'));
+
+            const statusTd = document.createElement('td');
+            const hasError = run.error || (run.result_summary && run.result_summary.includes('"error"'));
+            statusTd.appendChild(createBadge(
+                hasError ? 'error' : 'ok',
+                hasError ? 'badge-offline' : 'badge-online'
+            ));
+            tr.appendChild(statusTd);
+
+            // Summary (truncated)
+            const summary = run.result_summary || run.error || '\u2014';
+            const truncated = summary.length > 80 ? summary.substring(0, 80) + '...' : summary;
+            tr.appendChild(createTextCell(truncated));
+
+            tr.appendChild(createTextCell(run.completed_at ? new Date(run.completed_at).toLocaleString() : run.started_at || '\u2014'));
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 5;
+        td.className = 'loading';
+        td.textContent = 'Watchdog history unavailable';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
     }
 }
 
