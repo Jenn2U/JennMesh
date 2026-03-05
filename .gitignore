@@ -17,3 +17,5 @@ logs/*.log
 .pytest_cache/
 .coverage
 htmlcov/
+.DS_Store
+**/.DS_Store
