@@ -81,9 +81,7 @@ class TestInitTelemetry:
         assert result is False
         mock_logger.warning.assert_called_once()
 
-    def test_init_with_endpoint_calls_otel(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_init_with_endpoint_calls_otel(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When endpoint is set and OTel is available, initialization succeeds."""
         import sys
 

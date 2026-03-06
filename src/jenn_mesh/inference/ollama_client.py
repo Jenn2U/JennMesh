@@ -50,6 +50,7 @@ def _is_vision_model(model: str) -> bool:
     base = model.split(":")[0].lower()
     return base in VISION_MODELS or any(base.startswith(v) for v in VISION_MODELS)
 
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -314,9 +315,7 @@ class OllamaClient:
 
         # Convert images to OpenAI multipart content format
         if images:
-            content_parts: List[Dict[str, Any]] = [
-                {"type": "text", "text": user_message}
-            ]
+            content_parts: List[Dict[str, Any]] = [{"type": "text", "text": user_message}]
             for img in images:
                 content_parts.append(
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img}"}}
