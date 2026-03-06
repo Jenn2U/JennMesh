@@ -159,7 +159,7 @@ def test_recommend_provisioning_calls_service():
     mock.recommend = AsyncMock(return_value={"nodes": []})
     set_services({"provisioning_advisor": mock})
 
-    result = json.loads(recommend_provisioning_tool("forest", 5, "solar"))
+    json.loads(recommend_provisioning_tool("forest", 5, "solar"))
     mock.recommend.assert_awaited_once()
     call_ctx = mock.recommend.call_args[0][0]
     assert call_ctx["terrain"] == "forest"

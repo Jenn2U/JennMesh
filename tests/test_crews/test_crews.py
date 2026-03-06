@@ -137,7 +137,7 @@ def test_fleet_query_requires_question(_enable_crewai, mock_tools):
 def test_crew_creation_returns_none_without_crewai():
     """Crew creators return None when crewai is not importable."""
     with patch.dict(sys.modules, {"crewai": None}):
-        from jenn_mesh.crews.fleet_health import create_fleet_health_crew
+        from jenn_mesh.crews.fleet_health import create_fleet_health_crew  # noqa: F401
 
         # Force re-import to pick up the None crewai module
         import importlib
