@@ -397,7 +397,7 @@ class TestChatWithTools:
 class TestChatStructured:
     @pytest.mark.asyncio
     async def test_structured_fallback_to_chat_json(self):
-        """Without instructor installed, chat_structured falls back to chat_json + model_validate."""
+        """Without instructor, chat_structured falls back to chat_json + model_validate."""
         analysis = {
             "is_anomalous": True,
             "severity": "critical",
@@ -774,8 +774,6 @@ class TestProxyDualMode:
     @pytest.mark.asyncio
     async def test_proxy_failure_falls_through_to_ollama(self):
         """Proxy failure → falls through to direct Ollama."""
-        from unittest.mock import MagicMock
-
         mock_http = AsyncMock()
         mock_http.post = AsyncMock(side_effect=ConnectionError("proxy down"))
 
@@ -794,8 +792,6 @@ class TestProxyDualMode:
     @pytest.mark.asyncio
     async def test_proxy_skipped_for_tool_calls(self):
         """Tool calls bypass the proxy (Ollama native only)."""
-        from unittest.mock import MagicMock
-
         mock_http = AsyncMock()
         mock_ollama = AsyncMock()
 
