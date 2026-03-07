@@ -101,7 +101,7 @@ def main() -> None:
     downloader = FirmwareDownloader(config.firmware_cache or None)
     flash_pipeline = FlashPipeline(downloader)
 
-    config_manager = ConfigManager()
+    config_manager = ConfigManager(db)
     channel_manager = ChannelManager(db)
     security = SecuritySetup(db)
 
