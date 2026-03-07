@@ -121,9 +121,13 @@ class RadioWatcher:
         try:
             import json
             import urllib.request
+            from urllib.parse import urlparse
 
+            parsed = urlparse(self.config.edge_health_url)
+            if parsed.scheme not in ("http", "https"):
+                return False
             req = urllib.request.Request(self.config.edge_health_url)
-            with urllib.request.urlopen(req, timeout=3) as resp:
+            with urllib.request.urlopen(req, timeout=3) as resp:  # nosec B310
                 data = json.loads(resp.read())
             state = data.get("state", "disconnected")
             if state == "connected":
