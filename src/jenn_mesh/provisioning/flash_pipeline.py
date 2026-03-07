@@ -70,7 +70,9 @@ class FlashPipeline:
         dl_result = self.downloader.download_firmware(hw_model, target_version)
         if not dl_result.success or not dl_result.firmware_dir:
             return FlashResult(
-                success=False, hw_model=hw_model, firmware_version=target_version,
+                success=False,
+                hw_model=hw_model,
+                firmware_version=target_version,
                 message=f"Firmware download failed: {dl_result.message}",
             )
 
@@ -80,7 +82,9 @@ class FlashPipeline:
         erase_result = self.erase_flash(port)
         if not erase_result.success:
             return FlashResult(
-                success=False, hw_model=hw_model, firmware_version=target_version,
+                success=False,
+                hw_model=hw_model,
+                firmware_version=target_version,
                 message=f"Erase failed: {erase_result.message}",
                 duration=time.monotonic() - start,
             )
@@ -89,7 +93,9 @@ class FlashPipeline:
         write_result = self.write_flash(port, firmware_dir)
         if not write_result.success:
             return FlashResult(
-                success=False, hw_model=hw_model, firmware_version=target_version,
+                success=False,
+                hw_model=hw_model,
+                firmware_version=target_version,
                 message=f"Write failed: {write_result.message}",
                 duration=time.monotonic() - start,
             )
@@ -113,7 +119,10 @@ class FlashPipeline:
 
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=ERASE_TIMEOUT,
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=ERASE_TIMEOUT,
             )
             if result.returncode == 0:
                 logger.info("Flash erased successfully on %s", port)
@@ -134,8 +143,10 @@ class FlashPipeline:
         """Write firmware files to ESP32 at their correct flash offsets."""
         cmd = [
             "esptool.py",
-            "--port", port,
-            "--baud", str(DEFAULT_BAUD_RATE),
+            "--port",
+            port,
+            "--baud",
+            str(DEFAULT_BAUD_RATE),
             "write_flash",
         ]
 
@@ -153,7 +164,10 @@ class FlashPipeline:
 
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=FLASH_TIMEOUT,
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=FLASH_TIMEOUT,
             )
             if result.returncode == 0:
                 logger.info("Firmware flashed successfully")
@@ -182,7 +196,10 @@ class FlashPipeline:
         cmd = ["meshtastic", "--port", port, "--info"]
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=VERIFY_TIMEOUT,
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=VERIFY_TIMEOUT,
             )
             if result.returncode != 0:
                 logger.warning("Verification failed: meshtastic --info exit %d", result.returncode)
@@ -199,7 +216,8 @@ class FlashPipeline:
                             return True
                         logger.warning(
                             "Version mismatch: expected %s, got %s",
-                            expected_version, reported,
+                            expected_version,
+                            reported,
                         )
                         return False
 
@@ -209,9 +227,7 @@ class FlashPipeline:
             logger.warning("Verification error: %s", e)
             return False
 
-    def flash_nrf52(
-        self, port: str, hw_model: str, target_version: str
-    ) -> FlashResult:
+    def flash_nrf52(self, port: str, hw_model: str, target_version: str) -> FlashResult:
         """Placeholder for nRF52 flash — not supported via esptool.
 
         nRF52 devices (RAK4631, T-Echo) use UF2 format and require either:

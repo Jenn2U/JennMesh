@@ -18,7 +18,6 @@ from jenn_mesh.provisioning.firmware_downloader import (
     _default_cache_dir,
 )
 
-
 # ── Fixtures ────────────────────────────────────────────────────────
 
 
@@ -51,7 +50,7 @@ def nrf52_zip(tmp_path: Path) -> Path:
     zip_path = tmp_path / "firmware-2.5.6-nrf.zip"
     uf2_name = NRF52_ASSET_MAP["rak4631"].format(version="2.5.6")
     with zipfile.ZipFile(zip_path, "w") as zf:
-        zf.writestr(uf2_name, b"\xAA" * 200)
+        zf.writestr(uf2_name, b"\xaa" * 200)
     return zip_path
 
 
@@ -87,7 +86,7 @@ class TestCacheHit:
         device_dir = cache_dir / "2.5.6" / "rak4631"
         device_dir.mkdir(parents=True)
         uf2_name = NRF52_ASSET_MAP["rak4631"].format(version="2.5.6")
-        (device_dir / uf2_name).write_bytes(b"\xAA" * 100)
+        (device_dir / uf2_name).write_bytes(b"\xaa" * 100)
 
         path = downloader.get_firmware_path("rak4631", "2.5.6")
         assert path == device_dir
@@ -290,24 +289,32 @@ class TestCleanCache:
 
 class TestDefaultCacheDir:
     def test_linux_cache_dir(self):
-        with patch("jenn_mesh.provisioning.firmware_downloader.platform.system", return_value="Linux"):
+        with patch(
+            "jenn_mesh.provisioning.firmware_downloader.platform.system", return_value="Linux"
+        ):
             d = _default_cache_dir()
         assert d == Path("/var/lib/jenn-mesh/firmware")
 
     def test_darwin_cache_dir(self):
-        with patch("jenn_mesh.provisioning.firmware_downloader.platform.system", return_value="Darwin"):
+        with patch(
+            "jenn_mesh.provisioning.firmware_downloader.platform.system", return_value="Darwin"
+        ):
             d = _default_cache_dir()
         assert "Library" in str(d)
         assert "JennMesh" in str(d)
 
     def test_windows_cache_dir(self):
-        with patch("jenn_mesh.provisioning.firmware_downloader.platform.system", return_value="Windows"):
+        with patch(
+            "jenn_mesh.provisioning.firmware_downloader.platform.system", return_value="Windows"
+        ):
             with patch.dict("os.environ", {"APPDATA": "/fake/appdata"}):
                 d = _default_cache_dir()
         assert "JennMesh" in str(d)
 
     def test_unknown_os_fallback(self):
-        with patch("jenn_mesh.provisioning.firmware_downloader.platform.system", return_value="FreeBSD"):
+        with patch(
+            "jenn_mesh.provisioning.firmware_downloader.platform.system", return_value="FreeBSD"
+        ):
             d = _default_cache_dir()
         assert d == Path("/var/lib/jenn-mesh/firmware")
 
@@ -345,5 +352,3 @@ def _make_esp32_zip(prefix: str) -> bytes:
         for fname in ESP32_FLASH_FILES:
             zf.writestr(f"{prefix}/{fname}", b"\x00" * 100)
     return buf.getvalue()
-
-

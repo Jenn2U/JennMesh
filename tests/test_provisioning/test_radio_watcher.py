@@ -20,7 +20,6 @@ from jenn_mesh.provisioning.radio_watcher import (
     WatcherConfig,
 )
 
-
 # ── Fixtures ────────────────────────────────────────────────────────
 
 
@@ -52,9 +51,7 @@ def mock_firmware_tracker(mock_db):
 @pytest.fixture
 def mock_flash_pipeline():
     pipeline = MagicMock()
-    pipeline.erase_and_flash.return_value = MagicMock(
-        success=True, message="Flash successful"
-    )
+    pipeline.erase_and_flash.return_value = MagicMock(success=True, message="Flash successful")
     return pipeline
 
 
@@ -64,8 +61,11 @@ def mock_bench():
 
     bench = MagicMock()
     bench.apply_golden_config.return_value = ProvisioningResult(
-        success=True, node_id="!new12345", role="CLIENT",
-        config_hash="abc123", message="OK",
+        success=True,
+        node_id="!new12345",
+        role="CLIENT",
+        config_hash="abc123",
+        message="OK",
     )
     return bench
 
@@ -156,7 +156,9 @@ class TestScanPorts:
 
     def test_scan_handles_import_error(self, watcher):
         # Make the lazy `from serial.tools.list_ports import comports` fail
-        with patch.dict("sys.modules", {"serial": None, "serial.tools": None, "serial.tools.list_ports": None}):
+        with patch.dict(
+            "sys.modules", {"serial": None, "serial.tools": None, "serial.tools.list_ports": None}
+        ):
             devices = watcher.scan_ports()
             assert devices == []
 
@@ -214,7 +216,9 @@ class TestReadDeviceInfo:
     def test_returns_none_on_timeout(self, watcher):
         import subprocess
 
-        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="meshtastic", timeout=15)):
+        with patch(
+            "subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="meshtastic", timeout=15)
+        ):
             info = watcher.read_device_info("/dev/ttyUSB0")
         assert info is None
 
@@ -556,9 +560,7 @@ class TestGranularLogs:
     def _get_log_actions(self, db) -> list[str]:
         """Get all provisioning log actions from the database."""
         with db.connection() as conn:
-            rows = conn.execute(
-                "SELECT action FROM provisioning_log ORDER BY id"
-            ).fetchall()
+            rows = conn.execute("SELECT action FROM provisioning_log ORDER BY id").fetchall()
         return [r["action"] for r in rows]
 
     def test_radio_detected_logged(self, watcher, mock_db):

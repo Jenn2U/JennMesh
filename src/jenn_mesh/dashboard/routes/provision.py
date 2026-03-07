@@ -9,9 +9,7 @@ from fastapi import APIRouter, Request
 router = APIRouter(tags=["provision"])
 
 # Actions that indicate an in-progress provisioning operation
-_ACTIVE_ACTIONS = frozenset(
-    {"radio_detected", "erase_started", "flash_started", "config_applied"}
-)
+_ACTIVE_ACTIONS = frozenset({"radio_detected", "erase_started", "flash_started", "config_applied"})
 
 
 @router.get("/provision/recent")
