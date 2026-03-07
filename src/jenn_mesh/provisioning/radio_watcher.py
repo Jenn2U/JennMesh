@@ -129,7 +129,8 @@ class RadioWatcher:
             if state == "connected":
                 return False  # JennEdge has its radio — we can proceed
             logger.info(
-                "JennEdge running but radio state=%s — yielding priority", state,
+                "JennEdge running but radio state=%s — yielding priority",
+                state,
             )
             return True
         except Exception:
@@ -242,16 +243,17 @@ class RadioWatcher:
                 operator="radio-watcher",
                 details=f"Could not read device info on {port}",
             )
-            return ProvisionResult(
-                success=False, port=port, message="Could not read device info"
-            )
+            return ProvisionResult(success=False, port=port, message="Could not read device info")
 
         node_id = info.get("node_id", "")
         hw_model = info.get("hw_model", "unknown")
         current_fw = info.get("firmware_version", "unknown")
         logger.info(
             "Detected radio on %s: node=%s hw=%s fw=%s",
-            port, node_id, hw_model, current_fw,
+            port,
+            node_id,
+            hw_model,
+            current_fw,
         )
 
         # Step 2: Check if already registered
@@ -276,18 +278,22 @@ class RadioWatcher:
                 logger.warning(
                     "Radio %s is nRF52 (%s) — cannot auto-flash. "
                     "Use manual bench provisioning with UF2.",
-                    node_id, hw_model,
+                    node_id,
+                    hw_model,
                 )
             else:
                 # Safety gate
                 if not self.firmware_tracker.is_safe_to_flash(hw_model, target_version):
                     logger.warning(
                         "Firmware %s not marked COMPATIBLE for %s — skipping flash",
-                        target_version, hw_model,
+                        target_version,
+                        hw_model,
                     )
                 else:
                     logger.info(
-                        "Flashing %s with firmware %s...", hw_model, target_version,
+                        "Flashing %s with firmware %s...",
+                        hw_model,
+                        target_version,
                     )
                     self.db.log_provisioning(
                         node_id=node_id,
@@ -366,7 +372,10 @@ class RadioWatcher:
         self._known_ports.add(port)
         duration = time.monotonic() - start
         logger.info(
-            "Successfully provisioned %s as %s (%.1fs)", node_id, role.value, duration,
+            "Successfully provisioned %s as %s (%.1fs)",
+            node_id,
+            role.value,
+            duration,
         )
 
         return ProvisionResult(
@@ -391,18 +400,24 @@ class RadioWatcher:
                 )
                 if result.success:
                     return ProvisionResult(
-                        success=True, port=port, hw_model=hw_model,
+                        success=True,
+                        port=port,
+                        hw_model=hw_model,
                         firmware_version=target_version,
                         message="Flash successful",
                     )
                 logger.warning(
                     "Flash attempt %d/%d failed: %s",
-                    attempt + 1, self.config.max_retries, result.message,
+                    attempt + 1,
+                    self.config.max_retries,
+                    result.message,
                 )
             except Exception as e:
                 logger.warning(
                     "Flash attempt %d/%d error: %s",
-                    attempt + 1, self.config.max_retries, e,
+                    attempt + 1,
+                    self.config.max_retries,
+                    e,
                 )
 
             if attempt < self.config.max_retries - 1:
@@ -411,7 +426,9 @@ class RadioWatcher:
                 time.sleep(delay)
 
         return ProvisionResult(
-            success=False, port=port, hw_model=hw_model,
+            success=False,
+            port=port,
+            hw_model=hw_model,
             message=f"Flash failed after {self.config.max_retries} attempts",
         )
 

@@ -14,8 +14,7 @@ logger = logging.getLogger(__name__)
 
 # GitHub release URL pattern for Meshtastic firmware
 GITHUB_RELEASE_URL = (
-    "https://github.com/meshtastic/firmware/releases/download/"
-    "v{version}/firmware-{version}.zip"
+    "https://github.com/meshtastic/firmware/releases/download/" "v{version}/firmware-{version}.zip"
 )
 
 # Map hw_model → filename pattern inside the firmware ZIP
@@ -103,8 +102,10 @@ class FirmwareDownloader:
         if cached:
             logger.info("Firmware %s for %s already cached at %s", version, hw_model, cached)
             return DownloadResult(
-                success=True, firmware_dir=cached,
-                version=version, hw_model=hw_model,
+                success=True,
+                firmware_dir=cached,
+                version=version,
+                hw_model=hw_model,
                 message="Cached",
             )
 
@@ -120,7 +121,9 @@ class FirmwareDownloader:
                 with httpx.stream("GET", url, follow_redirects=True, timeout=120) as resp:
                     if resp.status_code != 200:
                         return DownloadResult(
-                            success=False, version=version, hw_model=hw_model,
+                            success=False,
+                            version=version,
+                            hw_model=hw_model,
                             message=f"HTTP {resp.status_code} downloading firmware",
                         )
                     with open(zip_path, "wb") as f:
@@ -129,13 +132,17 @@ class FirmwareDownloader:
                 logger.info("Downloaded %s (%.1f MB)", zip_path.name, zip_path.stat().st_size / 1e6)
             except ImportError:
                 return DownloadResult(
-                    success=False, version=version, hw_model=hw_model,
+                    success=False,
+                    version=version,
+                    hw_model=hw_model,
                     message="httpx not installed — cannot download firmware",
                 )
             except Exception as e:
                 zip_path.unlink(missing_ok=True)
                 return DownloadResult(
-                    success=False, version=version, hw_model=hw_model,
+                    success=False,
+                    version=version,
+                    hw_model=hw_model,
                     message=f"Download error: {e}",
                 )
 
@@ -158,7 +165,9 @@ class FirmwareDownloader:
         except zipfile.BadZipFile:
             zip_path.unlink(missing_ok=True)
             return DownloadResult(
-                success=False, version=version, hw_model=hw_model,
+                success=False,
+                version=version,
+                hw_model=hw_model,
                 message="Corrupt ZIP file — deleted, retry download",
             )
 
@@ -169,7 +178,9 @@ class FirmwareDownloader:
         asset_prefix = FIRMWARE_ASSET_MAP.get(hw_model)
         if not asset_prefix:
             return DownloadResult(
-                success=False, version=version, hw_model=hw_model,
+                success=False,
+                version=version,
+                hw_model=hw_model,
                 message=f"No firmware asset mapping for {hw_model}",
             )
 
@@ -194,15 +205,21 @@ class FirmwareDownloader:
         if len(extracted) < len(ESP32_FLASH_FILES):
             missing = set(ESP32_FLASH_FILES) - set(extracted)
             return DownloadResult(
-                success=False, firmware_dir=device_dir,
-                version=version, hw_model=hw_model,
+                success=False,
+                firmware_dir=device_dir,
+                version=version,
+                hw_model=hw_model,
                 message=f"Missing firmware files: {missing}",
             )
 
-        logger.info("Extracted %d ESP32 firmware files for %s v%s", len(extracted), hw_model, version)
+        logger.info(
+            "Extracted %d ESP32 firmware files for %s v%s", len(extracted), hw_model, version
+        )
         return DownloadResult(
-            success=True, firmware_dir=device_dir,
-            version=version, hw_model=hw_model,
+            success=True,
+            firmware_dir=device_dir,
+            version=version,
+            hw_model=hw_model,
             message=f"Extracted {len(extracted)} files",
         )
 
@@ -220,14 +237,18 @@ class FirmwareDownloader:
                 out_path.write_bytes(data)
                 logger.info("Extracted nRF52 UF2 for %s v%s", hw_model, version)
                 return DownloadResult(
-                    success=True, firmware_dir=device_dir,
-                    version=version, hw_model=hw_model,
+                    success=True,
+                    firmware_dir=device_dir,
+                    version=version,
+                    hw_model=hw_model,
                     message="Extracted UF2 file",
                 )
 
         return DownloadResult(
-            success=False, firmware_dir=device_dir,
-            version=version, hw_model=hw_model,
+            success=False,
+            firmware_dir=device_dir,
+            version=version,
+            hw_model=hw_model,
             message=f"UF2 file not found in ZIP: {uf2_name}",
         )
 
@@ -241,7 +262,9 @@ class FirmwareDownloader:
         if actual != expected_sha256:
             logger.warning(
                 "Checksum mismatch for %s: expected %s, got %s",
-                file_path.name, expected_sha256[:16], actual[:16],
+                file_path.name,
+                expected_sha256[:16],
+                actual[:16],
             )
             return False
         return True

@@ -17,7 +17,6 @@ from jenn_mesh.provisioning.flash_pipeline import (
     FlashResult,
 )
 
-
 # ── Fixtures ────────────────────────────────────────────────────────
 
 
@@ -68,7 +67,9 @@ class TestEraseFlash:
         assert "Chip not found" in result.message
 
     def test_erase_timeout(self, pipeline):
-        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("esptool", ERASE_TIMEOUT)):
+        with patch(
+            "subprocess.run", side_effect=subprocess.TimeoutExpired("esptool", ERASE_TIMEOUT)
+        ):
             result = pipeline.erase_flash("/dev/ttyUSB0")
         assert result.success is False
         assert "timed out" in result.message
@@ -110,7 +111,9 @@ class TestWriteFlash:
         assert "Missing firmware file" in result.message
 
     def test_write_timeout(self, pipeline, firmware_dir):
-        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("esptool", FLASH_TIMEOUT)):
+        with patch(
+            "subprocess.run", side_effect=subprocess.TimeoutExpired("esptool", FLASH_TIMEOUT)
+        ):
             result = pipeline.write_flash("/dev/ttyUSB0", firmware_dir)
         assert result.success is False
         assert "timed out" in result.message
