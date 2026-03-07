@@ -63,7 +63,7 @@ if ls /dev/meshtastic* /dev/ttyUSB* /dev/ttyACM* &>/dev/null 2>&1; then
     HAS_RADIO=true
 fi
 
-for svc in jenn-mesh-broker jenn-mesh-dashboard jenn-mesh-agent jenn-sentry-agent; do
+for svc in jenn-mesh-broker jenn-mesh-dashboard jenn-mesh-agent jenn-radio-watcher jenn-sentry-agent; do
     if systemctl is-active --quiet "$svc" 2>/dev/null; then
         uptime=$(systemctl show "$svc" --property=ActiveEnterTimestamp --value 2>/dev/null || echo "unknown")
         check "$svc" "ok" "since $uptime"
@@ -74,6 +74,14 @@ for svc in jenn-mesh-broker jenn-mesh-dashboard jenn-mesh-agent jenn-sentry-agen
         if [[ "$svc" == "jenn-mesh-agent" && "$HAS_RADIO" == "false" ]]; then
             warn "$svc" "no radio hardware — agent disabled until radio is plugged in"
             continue
+        fi
+
+        # Context-aware: radio watcher not enabled on this host
+        if [[ "$svc" == "jenn-radio-watcher" ]]; then
+            if ! systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+                warn "$svc" "not enabled on this host"
+                continue
+            fi
         fi
 
         # Context-aware: sentry managed by another venv or not enabled

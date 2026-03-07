@@ -1,1 +1,1 @@
-"""JennMesh provisioning — bench flash, firmware tracking, security setup."""
+"""JennMesh provisioning — bench flash, firmware tracking, radio watcher, security setup."""

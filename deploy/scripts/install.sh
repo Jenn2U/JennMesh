@@ -262,7 +262,7 @@ else
 fi
 
 # Install service files — core JennMesh services
-for svc in jenn-mesh-broker jenn-mesh-dashboard jenn-mesh-agent; do
+for svc in jenn-mesh-broker jenn-mesh-dashboard jenn-mesh-agent jenn-radio-watcher; do
     cp "$INSTALL_DIR/deploy/systemd/${svc}.service" /etc/systemd/system/
 done
 
@@ -283,7 +283,7 @@ fi
 systemctl daemon-reload
 
 # Enable services to start on boot
-for svc in jenn-mesh-broker jenn-mesh-dashboard jenn-mesh-agent; do
+for svc in jenn-mesh-broker jenn-mesh-dashboard jenn-mesh-agent jenn-radio-watcher; do
     systemctl enable "$svc"
 done
 # Only enable sentry if we installed it or it's not yet enabled
@@ -328,6 +328,10 @@ else
     echo "  No radio detected — jenn-mesh-agent not started (will auto-start when radio is plugged in)"
 fi
 sleep 2
+
+# Radio watcher — always start (watches for new radios even when none connected)
+systemctl start jenn-radio-watcher
+echo "  Started jenn-radio-watcher (auto-provisioning daemon)"
 
 # Start sentry only if we manage it
 SENTRY_BIN="$INSTALL_BASE/current/venv/bin/jenn-sentry-agent"

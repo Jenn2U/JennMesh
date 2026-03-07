@@ -1,0 +1,43 @@
+[Unit]
+Description=JennMesh Radio Auto-Provisioning Daemon
+Documentation=https://dev.azure.com/magnivation/JennMesh
+After=network-online.target jenn-mesh-broker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jenn-mesh
+Group=jenn-mesh
+SupplementaryGroups=dialout
+EnvironmentFile=/etc/jenn-mesh/env
+ExecStart=/opt/jenn-mesh/current/venv/bin/jenn-radio-watcher \
+    --log-level INFO
+WorkingDirectory=/opt/jenn-mesh/current
+Restart=on-failure
+RestartSec=30
+
+# Resource limits — watcher is lightweight, mostly sleeping
+MemoryMax=256M
+CPUQuota=25%
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/jenn-mesh /var/log/jenn-mesh
+PrivateTmp=true
+
+# USB device access — required for esptool flash + meshtastic CLI
+DeviceAllow=/dev/ttyUSB* rw
+DeviceAllow=/dev/ttyACM* rw
+
+# Network access — for firmware downloads from GitHub
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jenn-radio-watcher
+
+[Install]
+WantedBy=multi-user.target

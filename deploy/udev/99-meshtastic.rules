@@ -6,14 +6,17 @@
 # CP2102 — Silicon Labs (most common Meshtastic USB chip)
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", \
     SYMLINK+="meshtastic%n", GROUP="dialout", MODE="0660", \
-    TAG+="systemd", ENV{SYSTEMD_WANTS}="jenn-mesh-agent.service"
+    TAG+="systemd", ENV{SYSTEMD_WANTS}="jenn-mesh-agent.service", \
+    ENV{SYSTEMD_WANTS}+="jenn-radio-watcher.service"
 
 # CH9102 / CH340 — WCH (common on budget boards)
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", \
     SYMLINK+="meshtastic%n", GROUP="dialout", MODE="0660", \
-    TAG+="systemd", ENV{SYSTEMD_WANTS}="jenn-mesh-agent.service"
+    TAG+="systemd", ENV{SYSTEMD_WANTS}="jenn-mesh-agent.service", \
+    ENV{SYSTEMD_WANTS}+="jenn-radio-watcher.service"
 
 # FTDI FT232 (some Meshtastic development boards)
 SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6015", \
     SYMLINK+="meshtastic%n", GROUP="dialout", MODE="0660", \
-    TAG+="systemd", ENV{SYSTEMD_WANTS}="jenn-mesh-agent.service"
+    TAG+="systemd", ENV{SYSTEMD_WANTS}="jenn-mesh-agent.service", \
+    ENV{SYSTEMD_WANTS}+="jenn-radio-watcher.service"
