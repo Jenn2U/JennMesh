@@ -45,6 +45,8 @@ class WatcherConfig:
     db_path: str = ""
     max_retries: int = 3
     retry_backoff: tuple[int, ...] = (10, 30, 90)
+    edge_priority: bool = True
+    edge_health_url: str = "http://localhost:8080/mesh/status"
 
     @classmethod
     def from_env(cls) -> WatcherConfig:
@@ -55,6 +57,10 @@ class WatcherConfig:
             auto_flash=os.environ.get("JENN_RADIO_AUTO_FLASH", "true").lower() == "true",
             firmware_cache=os.environ.get("JENN_RADIO_FIRMWARE_CACHE", ""),
             db_path=os.environ.get("JENN_MESH_DB_PATH", ""),
+            edge_priority=os.environ.get("JENN_RADIO_EDGE_PRIORITY", "true").lower() == "true",
+            edge_health_url=os.environ.get(
+                "JENN_RADIO_EDGE_HEALTH_URL", "http://localhost:8080/mesh/status"
+            ),
         )
 
 
@@ -100,6 +106,35 @@ class RadioWatcher:
         self.bench = bench_provisioner
         self._known_ports: set[str] = set()
         self._running = False
+
+    def _edge_needs_radio(self) -> bool:
+        """Check if JennEdge is running but doesn't have a radio yet.
+
+        Uses urllib (stdlib) to query JennEdge's health API so this works
+        even when httpx is not installed.  Returns True when JennMesh should
+        yield priority — i.e. JennEdge is up but its radio state is not
+        'connected'.  Returns False (proceed normally) when JennEdge is not
+        running or already has its radio.
+        """
+        if not self.config.edge_priority:
+            return False
+        try:
+            import json
+            import urllib.request
+
+            req = urllib.request.Request(self.config.edge_health_url)
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read())
+            state = data.get("state", "disconnected")
+            if state == "connected":
+                return False  # JennEdge has its radio — we can proceed
+            logger.info(
+                "JennEdge running but radio state=%s — yielding priority", state,
+            )
+            return True
+        except Exception:
+            # JennEdge not running or unreachable — proceed normally
+            return False
 
     def scan_ports(self) -> list[dict]:
         """Scan for Meshtastic USB serial devices.
@@ -201,6 +236,12 @@ class RadioWatcher:
         # Step 1: Read device info
         info = self.read_device_info(port)
         if info is None:
+            self.db.log_provisioning(
+                node_id="",
+                action="provision_failed",
+                operator="radio-watcher",
+                details=f"Could not read device info on {port}",
+            )
             return ProvisionResult(
                 success=False, port=port, message="Could not read device info"
             )
@@ -248,8 +289,20 @@ class RadioWatcher:
                     logger.info(
                         "Flashing %s with firmware %s...", hw_model, target_version,
                     )
+                    self.db.log_provisioning(
+                        node_id=node_id,
+                        action="erase_started",
+                        operator="radio-watcher",
+                        details=f"hw={hw_model} target={target_version} port={port}",
+                    )
                     flash_result = self._flash_with_retry(port, hw_model, target_version)
                     if flash_result and not flash_result.success:
+                        self.db.log_provisioning(
+                            node_id=node_id,
+                            action="provision_failed",
+                            operator="radio-watcher",
+                            details=f"Flash failed: {flash_result.message}",
+                        )
                         return ProvisionResult(
                             success=False,
                             port=port,
@@ -275,6 +328,12 @@ class RadioWatcher:
         config_result = self.bench.apply_golden_config(role=role, port=port)
 
         if not config_result.success:
+            self.db.log_provisioning(
+                node_id=node_id,
+                action="provision_failed",
+                operator="radio-watcher",
+                details=f"Config failed: {config_result.message}",
+            )
             return ProvisionResult(
                 success=False,
                 port=port,
@@ -284,10 +343,18 @@ class RadioWatcher:
                 duration=time.monotonic() - start,
             )
 
-        # Step 5: Log provisioning
         self.db.log_provisioning(
             node_id=node_id,
-            action="auto_provision",
+            action="config_applied",
+            role=role.value,
+            operator="radio-watcher",
+            details=f"role={role.value} port={port}",
+        )
+
+        # Step 5: Log provisioning complete
+        self.db.log_provisioning(
+            node_id=node_id,
+            action="provision_complete",
             role=role.value,
             operator="radio-watcher",
             details=(
@@ -350,6 +417,16 @@ class RadioWatcher:
 
     def poll_once(self) -> list[ProvisionResult]:
         """Run a single poll cycle: scan ports → provision new radios."""
+        if self._edge_needs_radio():
+            logger.debug("Yielding to JennEdge radio priority")
+            self.db.log_provisioning(
+                node_id="",
+                action="edge_yield",
+                operator="radio-watcher",
+                details="Yielding radio priority to JennEdge",
+            )
+            return []
+
         results = []
         devices = self.scan_ports()
 
@@ -366,6 +443,12 @@ class RadioWatcher:
                 continue
 
             logger.info("New radio detected on %s (VID=0x%04X)", port, device["vid"])
+            self.db.log_provisioning(
+                node_id="",
+                action="radio_detected",
+                operator="radio-watcher",
+                details=f"port={port} vid=0x{device['vid']:04X}",
+            )
             result = self.provision_device(port)
             results.append(result)
 

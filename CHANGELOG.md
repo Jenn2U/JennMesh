@@ -5,6 +5,20 @@ All notable changes to JennMesh will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-03-07
+
+### Added
+- **Dashboard provisioning toast notifications**: Floating bottom-right toasts show real-time radio provisioning events (detected, flashing, configured, complete, failed)
+- **Provision tab badge counter**: Amber badge on Provision nav link shows active provisioning operation count
+- **`GET /api/v1/provision/recent` endpoint**: Returns last 5 minutes of provisioning events with active_count for badge/toast
+- **Granular provisioning log entries**: radio_detected, erase_started, config_applied, provision_complete, provision_failed, edge_yield actions replace single completion log
+- **JennEdge priority coordination**: Radio watcher yields to JennEdge on shared nodes via stdlib health check (`GET localhost:8080/mesh/status`); configurable via `JENN_RADIO_EDGE_PRIORITY` env var
+- **Systemd ordering**: `After=jenn-edge.service` + 5-second startup grace period ensures JennEdge claims its radio first
+
+### Changed
+- `radio_watcher.WatcherConfig` — added `edge_priority` and `edge_health_url` fields
+- Service unit — added `ExecStartPre=/bin/sleep 5` for startup grace period
+
 ## [0.8.0] - 2026-03-05
 
 ### Added

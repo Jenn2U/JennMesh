@@ -20,7 +20,7 @@
             <a href="#fleet" class="nav-link active" data-tab="fleet">Fleet</a>
             <a href="#map" class="nav-link" data-tab="map">Map</a>
             <a href="#config" class="nav-link" data-tab="config">Config</a>
-            <a href="#provision" class="nav-link" data-tab="provision">Provision</a>
+            <a href="#provision" class="nav-link" data-tab="provision">Provision <span class="nav-badge" id="provision-badge" style="display:none">0</span></a>
             <a href="#locator" class="nav-link" data-tab="locator">Locator</a>
             <a href="#alerts" class="nav-link" data-tab="alerts">Alerts</a>
             <a href="#watchdog" class="nav-link" data-tab="watchdog">Watchdog</a>
@@ -409,6 +409,7 @@
         <span>JennMesh v{{ version }} — Magnivation JENN Ecosystem</span>
     </footer>
 
+    <div id="toast-container" class="toast-container"></div>
     <script src="/static/app.js?v={{ version }}"></script>
 </body>
 </html>

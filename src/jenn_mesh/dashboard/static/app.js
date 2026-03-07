@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => {
         loadHealthData();
         loadFleetData();
+        checkProvisionEvents();
     }, 30000);
 });
 
@@ -2133,4 +2134,87 @@ function initThemeToggle() {
                 applyIcons(t);
             }
         });
+}
+
+// ── Toast Notification System ───────────────────────────────────
+
+const TOAST_ICONS = {
+    info: '\u{1F4E1}',      // satellite antenna
+    success: '\u2705',       // check mark
+    error: '\u274C',         // cross mark
+};
+
+const TOAST_ACTION_MAP = {
+    radio_detected:     { type: 'info',    fmt: (e) => `New radio detected on ${e.details || 'USB'}` },
+    erase_started:      { type: 'info',    fmt: (e) => `Erasing flash on ${_port(e)}...` },
+    flash_started:      { type: 'info',    fmt: (e) => `Flashing firmware to ${_port(e)}...` },
+    config_applied:     { type: 'info',    fmt: (e) => `Golden config applied to ${e.node_id || 'radio'}` },
+    provision_complete: { type: 'success', fmt: (e) => `Radio ${e.node_id || ''} provisioned successfully` },
+    provision_failed:   { type: 'error',   fmt: (e) => `Provisioning failed: ${e.details || 'unknown error'}` },
+    edge_yield:         { type: 'info',    fmt: () => 'Yielding radio priority to JennEdge...' },
+};
+
+function _port(entry) {
+    const m = (entry.details || '').match(/port=(\S+)/);
+    return m ? m[1] : 'USB';
+}
+
+function showToast(message, type) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast toast--${type || 'info'}`;
+
+    const icon = document.createElement('span');
+    icon.className = 'toast-icon';
+    icon.textContent = TOAST_ICONS[type] || TOAST_ICONS.info;
+    toast.appendChild(icon);
+
+    const body = document.createElement('span');
+    body.className = 'toast-body';
+    body.textContent = message;
+    toast.appendChild(body);
+
+    container.appendChild(toast);
+
+    // Auto-dismiss after 10 seconds
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 400);
+    }, 10000);
+}
+
+function updateProvisionBadge(activeCount) {
+    const badge = document.getElementById('provision-badge');
+    if (!badge) return;
+    if (activeCount > 0) {
+        badge.textContent = String(activeCount);
+        badge.style.display = '';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+let _lastProvisionTimestamp = null;
+
+async function checkProvisionEvents() {
+    try {
+        const resp = await fetch('/api/v1/provision/recent');
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        updateProvisionBadge(data.active_count || 0);
+
+        if (!data.entries || data.entries.length === 0) return;
+
+        for (const entry of data.entries) {
+            if (_lastProvisionTimestamp && entry.timestamp <= _lastProvisionTimestamp) break;
+            const mapping = TOAST_ACTION_MAP[entry.action];
+            if (mapping) {
+                showToast(mapping.fmt(entry), mapping.type);
+            }
+        }
+        _lastProvisionTimestamp = data.entries[0].timestamp;
+    } catch { /* ignore — dashboard may be loading */ }
 }

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import http.server
+import json
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -453,3 +456,136 @@ class TestConstants:
         assert "HELTEC_V3" in HW_MODEL_MAP
         assert "TBEAM" in HW_MODEL_MAP
         assert "RAK4631" in HW_MODEL_MAP
+
+
+# ── Edge Priority Tests ────────────────────────────────────────
+
+
+class _EdgeHealthHandler(http.server.BaseHTTPRequestHandler):
+    """Tiny HTTP handler that returns a configurable JennEdge health JSON."""
+
+    response_body = b'{"state": "connected"}'
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(self.response_body)
+
+    def log_message(self, *args):
+        pass  # Suppress request logging in test output
+
+
+class TestEdgePriority:
+    def test_edge_connected_returns_false(self, watcher):
+        """When JennEdge reports 'connected', watcher proceeds."""
+        _EdgeHealthHandler.response_body = b'{"state": "connected"}'
+        server = http.server.HTTPServer(("127.0.0.1", 0), _EdgeHealthHandler)
+        port = server.server_address[1]
+        watcher.config.edge_health_url = f"http://127.0.0.1:{port}/mesh/status"
+        t = threading.Thread(target=server.handle_request, daemon=True)
+        t.start()
+
+        assert watcher._edge_needs_radio() is False
+        server.server_close()
+
+    def test_edge_disconnected_returns_true(self, watcher):
+        """When JennEdge reports 'disconnected', watcher yields."""
+        _EdgeHealthHandler.response_body = b'{"state": "disconnected"}'
+        server = http.server.HTTPServer(("127.0.0.1", 0), _EdgeHealthHandler)
+        port = server.server_address[1]
+        watcher.config.edge_health_url = f"http://127.0.0.1:{port}/mesh/status"
+        t = threading.Thread(target=server.handle_request, daemon=True)
+        t.start()
+
+        assert watcher._edge_needs_radio() is True
+        server.server_close()
+
+    def test_edge_unreachable_returns_false(self, watcher):
+        """When JennEdge is not running, watcher proceeds normally."""
+        watcher.config.edge_health_url = "http://127.0.0.1:1/nonexistent"
+        assert watcher._edge_needs_radio() is False
+
+    def test_edge_priority_disabled(self, watcher):
+        """When edge_priority=False, always returns False."""
+        watcher.config.edge_priority = False
+        assert watcher._edge_needs_radio() is False
+
+    def test_poll_yields_when_edge_needs_radio(self, watcher):
+        """poll_once() returns empty when edge needs a radio."""
+        with patch.object(watcher, "_edge_needs_radio", return_value=True):
+            results = watcher.poll_once()
+        assert results == []
+
+    def test_poll_proceeds_when_edge_has_radio(self, watcher):
+        """poll_once() scans ports when edge has its radio."""
+        with patch.object(watcher, "_edge_needs_radio", return_value=False):
+            with patch("serial.tools.list_ports.comports", return_value=[]):
+                results = watcher.poll_once()
+        assert results == []  # No devices, but scan happened
+
+
+# ── WatcherConfig Edge Fields Tests ────────────────────────────
+
+
+class TestWatcherConfigEdge:
+    def test_edge_defaults(self):
+        cfg = WatcherConfig()
+        assert cfg.edge_priority is True
+        assert cfg.edge_health_url == "http://localhost:8080/mesh/status"
+
+    def test_edge_from_env(self, monkeypatch):
+        monkeypatch.setenv("JENN_RADIO_EDGE_PRIORITY", "false")
+        monkeypatch.setenv("JENN_RADIO_EDGE_HEALTH_URL", "http://custom:9090/health")
+        cfg = WatcherConfig.from_env()
+        assert cfg.edge_priority is False
+        assert cfg.edge_health_url == "http://custom:9090/health"
+
+    def test_edge_from_env_defaults(self, monkeypatch):
+        monkeypatch.delenv("JENN_RADIO_EDGE_PRIORITY", raising=False)
+        monkeypatch.delenv("JENN_RADIO_EDGE_HEALTH_URL", raising=False)
+        cfg = WatcherConfig.from_env()
+        assert cfg.edge_priority is True
+        assert cfg.edge_health_url == "http://localhost:8080/mesh/status"
+
+
+# ── Granular Provisioning Log Tests ────────────────────────────
+
+
+class TestGranularLogs:
+    def _get_log_actions(self, db) -> list[str]:
+        """Get all provisioning log actions from the database."""
+        with db.connection() as conn:
+            rows = conn.execute(
+                "SELECT action FROM provisioning_log ORDER BY id"
+            ).fetchall()
+        return [r["action"] for r in rows]
+
+    def test_radio_detected_logged(self, watcher, mock_db):
+        """poll_once logs radio_detected when a new radio is found."""
+        port = _make_port_info("/dev/ttyUSB0", 0x10C4, 0xEA60)
+        output = "Node number: !new12345\nHardware: HELTEC_V3\nFirmware version: 2.5.6\n"
+        with patch.object(watcher, "_edge_needs_radio", return_value=False):
+            with patch("serial.tools.list_ports.comports", return_value=[port]):
+                with patch.object(watcher, "is_port_in_use", return_value=False):
+                    with patch("subprocess.run") as mock_run:
+                        mock_run.return_value = MagicMock(returncode=0, stdout=output, stderr="")
+                        with patch("time.sleep"):
+                            watcher.poll_once()
+
+        assert "radio_detected" in self._get_log_actions(mock_db)
+
+    def test_provision_failed_on_bad_info(self, watcher, mock_db):
+        """provision_device logs provision_failed when device info can't be read."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Error")
+            watcher.provision_device("/dev/ttyUSB0")
+
+        assert "provision_failed" in self._get_log_actions(mock_db)
+
+    def test_edge_yield_logged(self, watcher, mock_db):
+        """poll_once logs edge_yield when yielding to JennEdge."""
+        with patch.object(watcher, "_edge_needs_radio", return_value=True):
+            watcher.poll_once()
+
+        assert "edge_yield" in self._get_log_actions(mock_db)

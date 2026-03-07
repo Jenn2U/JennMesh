@@ -1,7 +1,7 @@
 [Unit]
 Description=JennMesh Radio Auto-Provisioning Daemon
 Documentation=https://dev.azure.com/magnivation/JennMesh
-After=network-online.target jenn-mesh-broker.service
+After=network-online.target jenn-mesh-broker.service jenn-edge.service
 Wants=network-online.target
 
 [Service]
@@ -10,6 +10,7 @@ User=jenn-mesh
 Group=jenn-mesh
 SupplementaryGroups=dialout
 EnvironmentFile=/etc/jenn-mesh/env
+ExecStartPre=/bin/sleep 5
 ExecStart=/opt/jenn-mesh/current/venv/bin/jenn-radio-watcher \
     --log-level INFO
 WorkingDirectory=/opt/jenn-mesh/current
