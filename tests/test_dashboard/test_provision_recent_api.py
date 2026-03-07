@@ -92,7 +92,8 @@ async def test_recent_excludes_old_events(client: AsyncClient, populated_db: Mes
     old_ts = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
     with populated_db.connection() as conn:
         conn.execute(
-            "INSERT INTO provisioning_log (node_id, action, operator, timestamp) VALUES (?, ?, ?, ?)",
+            "INSERT INTO provisioning_log (node_id, action, operator, timestamp)"
+            " VALUES (?, ?, ?, ?)",
             ("!old", "provision_complete", "radio-watcher", old_ts),
         )
 

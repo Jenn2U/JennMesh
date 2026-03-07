@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import signal
-import sys
 
 logger = logging.getLogger(__name__)
 

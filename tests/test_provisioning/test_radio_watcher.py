@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import http.server
-import json
 import threading
-from dataclasses import dataclass
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,7 +12,6 @@ from jenn_mesh.provisioning.radio_watcher import (
     MESHTASTIC_VIDS,
     NRF52_MODELS,
     HW_MODEL_MAP,
-    ProvisionResult,
     RadioWatcher,
     WatcherConfig,
 )

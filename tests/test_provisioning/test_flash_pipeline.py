@@ -14,7 +14,6 @@ from jenn_mesh.provisioning.flash_pipeline import (
     ERASE_TIMEOUT,
     FLASH_TIMEOUT,
     FlashPipeline,
-    FlashResult,
 )
 
 # ── Fixtures ────────────────────────────────────────────────────────
