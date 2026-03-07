@@ -196,8 +196,10 @@ class TestPruneStaleEdges:
 
         # Manually age the edge
         with db.connection() as conn:
-            conn.execute("""UPDATE topology_edges SET last_updated = datetime('now', '-48 hours')
-                   WHERE from_node = '!a'""")
+            conn.execute(
+                """UPDATE topology_edges SET last_updated = datetime('now', '-48 hours')
+                   WHERE from_node = '!a'"""
+            )
 
         manager = TopologyManager(db)
         deleted = manager.prune_stale_edges(max_age_hours=24)
