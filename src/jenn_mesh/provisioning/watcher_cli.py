@@ -103,7 +103,7 @@ def main() -> None:
 
     config_manager = ConfigManager(db)
     channel_manager = ChannelManager(db)
-    security = SecuritySetup(db)
+    security = SecuritySetup()
 
     bench = BenchProvisioner(
         db=db,
